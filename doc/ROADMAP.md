@@ -39,6 +39,15 @@ control rather than cryptographic assurance.
 - [ ] Fully namespaced packages (`owner/name`, GitHub-style). No flat tier.
 - [ ] Namespace allocation is first-come-first-served and maps 1:1 onto the
       backing registry's (Gitea's) user/org namespace and ACLs.
+- [ ] Namespace character set: lower-case letters, digits, and dashes,
+      beginning with a letter (validated client-side in `new`/`pack` today;
+      enforced at publish once the server exists). Stricter than Gitea's own
+      username rules, deliberately: `_` is excluded so that in artifact
+      filenames underscores unambiguously mark normalised dashes *within* a
+      field while dashes delineate the fields themselves
+      (name/version/platforms/language — as Python wheels do), and `.` is
+      excluded to keep it free for dot-qualified invocation of namespaced
+      command overloads post-v1 (see below).
 - [ ] The `library` namespace is reserved for future curated/reviewed
       packages.
 - [ ] No framework-level manifest correctness checks (no lint, no sandboxed
@@ -142,3 +151,8 @@ Not scheduled; recorded so v1 decisions do not preclude them.
 - [ ] Curated/reviewed package programme under the reserved `library`
       namespace.
 - [ ] Federation/promotion between internal and public indices.
+- [ ] Dot-qualified invocation of namespaced command overloads — invoking a
+      specific package's version of a command directly as
+      `<namespace>.<command>` (e.g. `kevin-c.my-script`) regardless of which
+      package currently owns the bare shim. The `.` is unambiguous precisely
+      because the namespace character set excludes it.

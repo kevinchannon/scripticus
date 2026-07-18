@@ -71,11 +71,21 @@ def test_namespace_is_required(in_tmp_path):
     assert not (in_tmp_path / "my-cool-script").exists()
 
 
-@pytest.mark.parametrize("bad_namespace", ["has space", "slash/ns", ".leading-dot", ""])
+@pytest.mark.parametrize(
+    "bad_namespace",
+    ["has space", "slash/ns", "Acme", "acme_org", "acme.org", "1acme", "acme-", ""],
+)
 def test_invalid_namespace_is_rejected(in_tmp_path, bad_namespace):
     result = new("bash", "my-cool-script", "-n", bad_namespace)
     assert result.exit_code != 0
     assert not (in_tmp_path / "my-cool-script").exists()
+
+
+@pytest.mark.parametrize("good_namespace", ["acme", "acme-org2", "a", "a1-b2-c3"])
+def test_valid_namespace_is_accepted(in_tmp_path, good_namespace):
+    result = new("bash", "my-cool-script", "-n", good_namespace)
+    assert result.exit_code == 0
+    assert (in_tmp_path / "my-cool-script").is_dir()
 
 
 def test_unknown_language_is_rejected(in_tmp_path):

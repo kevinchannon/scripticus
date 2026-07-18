@@ -50,7 +50,7 @@ def _validate_namespace(value: str) -> str:
     if not scaffold.NAMESPACE_RE.match(value):
         raise typer.BadParameter(
             f"'{value}' is not a valid namespace"
-            " (a Gitea user or organisation: letters, digits, '.', '-', '_')"
+            " (lower-case letters, digits, and dashes, starting with a letter)"
         )
     return value
 

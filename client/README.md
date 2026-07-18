@@ -133,7 +133,8 @@ $ scripticus new bash my-cool-script -n infra
 
 The namespace (`-n/--namespace`) is required: it is the namespace the
 package will be published under (a Gitea user or organisation), and it goes
-straight into the generated manifest.
+straight into the generated manifest. Namespaces are lower-case letters,
+digits, and dashes, and must begin with a letter.
 
 This creates:
 

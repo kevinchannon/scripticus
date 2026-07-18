@@ -45,9 +45,10 @@ LANGUAGES: dict[str, Language] = {
     "powershell": Language("ps1", POWERSHELL_MAIN, ("windows",), executable=False),
 }
 
-# Namespaces map to Gitea users/organisations, which allow letters, digits,
-# dots, dashes, and underscores.
-NAMESPACE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+# Lower-case letters, digits, and dashes, starting with a letter. Stricter
+# than Gitea's own username rules (which also allow '.', '_', and upper
+# case): a namespace must satisfy both.
+NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 
 MANIFEST_TEMPLATE = """\
 [package]

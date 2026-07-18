@@ -6,7 +6,7 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-from scripticus.scaffold import LANGUAGES
+from scripticus.scaffold import LANGUAGES, NAMESPACE_RE
 
 # Kebab-case, as enforced for package names throughout.
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -44,8 +44,11 @@ def load_manifest(package_dir: Path) -> dict:
     package = manifest.get("package", {})
 
     namespace = package.get("namespace", "")
-    if not namespace:
-        errors.append("[package] namespace is not set (your Gitea user or organisation)")
+    if not NAMESPACE_RE.match(namespace):
+        errors.append(
+            f"[package] namespace '{namespace}' is not valid"
+            " (lower-case letters, digits, and dashes, starting with a letter)"
+        )
 
     name = package.get("name", "")
     if not NAME_RE.match(name):
