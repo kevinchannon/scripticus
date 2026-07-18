@@ -4,12 +4,20 @@ Operates entirely against ``installed.lock`` — no server round-trip (D10).
 A package's lock entry lists only the command shims it currently owns
 (last-install-wins, D11), so uninstalling never removes a shim that another
 package has since taken over.
+
+Removing a shim owner can orphan a command that other installed packages
+still provide (D28). Providers are discovered by re-reading the installed
+manifests under ``pkgs/`` rather than from the lockfile: the manifest is the
+authoritative source (D21) and this works for packages installed before
+replacement discovery existed.
 """
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
-from scripticus.install import _shim_path, write_lockfile
+from scripticus.install import _find_entry, _shim_path, _write_shim, write_lockfile
+from scripticus.manifest import ManifestError, commands_of, load_manifest
 
 
 class UninstallError(Exception):
@@ -41,6 +49,68 @@ def find_installed(spec: str, lock: dict) -> dict:
             " — use the namespace/name form"
         )
     return matches[0]
+
+
+@dataclass
+class Candidate:
+    """An installed package that provides a command being orphaned."""
+
+    namespace: str
+    name: str
+    version: str
+    language: str
+    script: str  # package-relative path the command maps to
+
+    @property
+    def package_id(self) -> str:
+        return f"{self.namespace}/{self.name}"
+
+
+def find_replacements(
+    removed: dict, lock: dict, home: Path
+) -> dict[str, list[Candidate]]:
+    """Map each command owned by ``removed`` to other installed packages
+    whose manifests also provide it. Commands nobody else provides are
+    absent from the result.
+    """
+    replacements: dict[str, list[Candidate]] = {}
+    owned = set(removed["commands"])
+    for entry in lock["packages"]:
+        if entry is removed:
+            continue
+        package_dir = home / "pkgs" / entry["namespace"] / entry["name"] / entry["version"]
+        try:
+            manifest = load_manifest(package_dir)
+        except ManifestError:
+            continue  # a damaged tree shouldn't block the uninstall
+        for command, script in commands_of(manifest).items():
+            if command in owned:
+                replacements.setdefault(command, []).append(
+                    Candidate(
+                        namespace=entry["namespace"],
+                        name=entry["name"],
+                        version=entry["version"],
+                        language=manifest["package"]["language"],
+                        script=script,
+                    )
+                )
+    return replacements
+
+
+def install_replacement(candidate: Candidate, command: str, lock: dict, home: Path) -> None:
+    """Point ``command``'s shim at ``candidate`` and record the ownership.
+
+    This is the re-point primitive `scripticus use` will share.
+    """
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = home / "pkgs" / candidate.namespace / candidate.name / candidate.version / candidate.script
+    _write_shim(bin_dir, command, script, candidate.language)
+
+    entry = _find_entry(lock, candidate.namespace, candidate.name)
+    if entry is not None and command not in entry["commands"]:
+        entry["commands"] = sorted([*entry["commands"], command])
+    write_lockfile(home, lock)
 
 
 def apply_uninstall(entry: dict, lock: dict, home: Path) -> None:

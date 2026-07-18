@@ -106,6 +106,33 @@ $ scripticus update backup-rotate   # one package
 $ scripticus uninstall backup-rotate
 ```
 
+`uninstall` shows what will be removed and asks for confirmation (`-y`
+skips the prompt). If a removed command is also provided by another
+installed package — for example the uninstalled package had taken the shim
+over — you are offered a numbered list of replacements to re-point the
+command at, with "No replacement" as the default:
+
+```console
+$ scripticus uninstall new-backup
+
+Uninstalling tools/new-backup 2.0.0
+
+Command shims to remove: backup-rotate
+
+Proceed? [y/N]: y
+
+Uninstalled tools/new-backup 2.0.0
+
+'backup-rotate' is also provided by other installed packages:
+  0) No replacement
+  1) tools/old-backup  1.4.2
+Select a replacement for 'backup-rotate' [0]: 1
+'backup-rotate' now points at tools/old-backup 1.4.2
+```
+
+With `-y` no replacement is ever selected automatically; the alternatives
+are listed with the `scripticus use` command that would restore each one.
+
 ### Command conflicts
 
 If two installed packages expose the same command name, the most recently

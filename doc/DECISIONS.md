@@ -584,3 +584,41 @@ explicitly (D11) so nothing functional depends on the bit.
   listing structure.
 - Bad: a change that only flips a file's executable bit does not change the
   package's identity.
+
+---
+
+## D28. Uninstall offers orphaned-shim replacements; never re-points silently
+
+**Decision**: When uninstalling a package that owns command shims, the
+client searches the other installed packages' manifests for ones that also
+provide those commands. Interactively, each orphaned command gets a numbered
+picker — option 0, the default, is "No replacement" — and a selection
+re-points the shim and records the new ownership in the lockfile. Under
+`-y`/`--yes` nothing is ever re-pointed: a single alternative provider is
+hinted with the exact `scripticus use` invocation to restore the command; with
+several providers they are listed, followed by a note that no replacement is
+selected by default. Providers are discovered by re-reading the installed
+manifests under `pkgs/`, not from lockfile state.
+
+**Reason**: Last-install-wins (D11) means a lock entry records only the
+commands a package *currently owns*, so uninstalling a shim owner would
+silently drop a command that another installed package still provides — the
+worst outcome is the user discovering a missing command later with no signal
+that a one-line fix existed. The picker surfaces the choice at the moment it
+arises; it is the interactive front-end to the same re-point primitive `use`
+(D11) exposes explicitly. Re-deriving providers from manifests keeps the
+lockfile from carrying a second copy of manifest-derived data that could
+drift (the D21 instinct applied client-side) and works for packages
+installed before this behaviour existed. Non-interactive runs never
+re-point because choosing a replacement on the user's behalf would make
+`-y` mean "yes, and also decisions I never saw". The install transaction's
+"no per-item selection" rule (D17) is not contradicted: that rule prevents
+partial-install ambiguity, whereas replacement selection happens after a
+completed uninstall and cannot create partial state.
+
+**Consequences**:
+- Good: uninstalling a shim owner can no longer silently orphan a command
+  another package provides; the user always gets either a choice or a hint.
+- Good: the re-point primitive is shared with the future `use` command.
+- Bad: uninstall now reads every other installed package's manifest — fine
+  at CLI scale, and a damaged tree is skipped rather than blocking removal.

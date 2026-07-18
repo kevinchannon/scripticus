@@ -13,8 +13,9 @@ are Typer + Rich CLIs. The client implements `-v`/`--version`, `new`
 `install -f` (local install: extraction, transaction flow, shims, lockfile —
 `install.py`; a package declaring package dependencies is rejected by a
 resolver stub until remote install brings real resolution), and `uninstall`
-(lockfile-driven removal of a package's files and owned shims —
-`uninstall.py`). Manifest
+(lockfile-driven removal of a package's files and owned shims, with a
+replacement picker for commands other installed packages still provide, D28
+— `uninstall.py`). Manifest
 validation shared by pack/install lives in
 `manifest.py` (the seed of the future `shared/` schema package); the D3/D27
 content hash in `treehash.py`. Client-side state goes under `~/.scripticus/`
@@ -65,7 +66,7 @@ $ uv build --package scripticus-server
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D24). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D28). Each
   entry has decision, reasoning, and consequences (good *and* bad).
 
 The decision record is the backbone: architecture and roadmap statements

@@ -17,7 +17,14 @@ from scripticus.install import (
 )
 from scripticus.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
-from scripticus.uninstall import UninstallError, apply_uninstall, find_installed
+from scripticus.uninstall import (
+    Candidate,
+    UninstallError,
+    apply_uninstall,
+    find_installed,
+    find_replacements,
+    install_replacement,
+)
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -268,6 +275,8 @@ def uninstall(
         console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
+    replacements = find_replacements(entry, lock, home)
+
     package_id = f"{entry['namespace']}/{entry['name']}"
     console.print(f"Uninstalling [bold]{package_id}[/bold] {entry['version']}")
     if entry["commands"]:
@@ -283,3 +292,51 @@ def uninstall(
 
     apply_uninstall(entry, lock, home)
     console.print(f"\nUninstalled [bold]{package_id}[/bold] {entry['version']}")
+
+    for command in sorted(replacements):
+        candidates = replacements[command]
+        if yes:
+            _report_replacements(command, candidates)
+        else:
+            _prompt_replacement(command, candidates, lock, home)
+
+
+def _report_replacements(command: str, candidates: "list[Candidate]") -> None:
+    """Non-interactive: never re-point silently, just say what's possible."""
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        console.print(
+            f"\n'{command}' is also provided by {candidate.package_id} — run"
+            f" 'scripticus use {candidate.package_id} {command}' to restore it."
+        )
+    else:
+        console.print(f"\nSeveral packages provide '{command}':")
+        for candidate in candidates:
+            console.print(f"  {candidate.package_id}  {candidate.version}")
+        console.print(
+            "No replacement selected by default — use"
+            f" 'scripticus use <namespace/name> {command}' to select one."
+        )
+
+
+def _prompt_replacement(
+    command: str, candidates: "list[Candidate]", lock: dict, home: Path
+) -> None:
+    console.print(f"\n'{command}' is also provided by other installed packages:")
+    console.print("  0) No replacement")
+    for number, candidate in enumerate(candidates, start=1):
+        console.print(f"  {number}) {candidate.package_id}  {candidate.version}")
+
+    while True:
+        choice = typer.prompt(
+            f"Select a replacement for '{command}'", type=int, default=0
+        )
+        if 0 <= choice <= len(candidates):
+            break
+        console.print(f"Please choose a number between 0 and {len(candidates)}.")
+    if choice == 0:
+        console.print(f"'{command}' left without a shim.")
+        return
+    candidate = candidates[choice - 1]
+    install_replacement(candidate, command, lock, home)
+    console.print(f"'{command}' now points at {candidate.package_id} {candidate.version}")
