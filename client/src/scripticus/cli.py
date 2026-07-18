@@ -12,10 +12,12 @@ from scripticus.install import (
     Transaction,
     apply_install,
     prepare_install,
+    read_lockfile,
     scripticus_home,
 )
 from scripticus.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
+from scripticus.uninstall import UninstallError, apply_uninstall, find_installed
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -241,3 +243,43 @@ def install(
                 console.print(f"  {conflict.command}  (was {conflict.owner})")
     finally:
         shutil.rmtree(transaction.staging, ignore_errors=True)
+
+
+@app.command()
+def uninstall(
+    package: str = typer.Argument(
+        ...,
+        help="Installed package to remove, as 'name' or 'namespace/name'.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Remove without asking for confirmation.",
+    ),
+) -> None:
+    """Uninstall a package, removing its files and command shims."""
+    home = scripticus_home()
+    lock = read_lockfile(home)
+
+    try:
+        entry = find_installed(package, lock)
+    except UninstallError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    package_id = f"{entry['namespace']}/{entry['name']}"
+    console.print(f"Uninstalling [bold]{package_id}[/bold] {entry['version']}")
+    if entry["commands"]:
+        console.print(f"\nCommand shims to remove: {', '.join(entry['commands'])}")
+    else:
+        console.print("\nNo command shims to remove (other packages own them all).")
+
+    if not yes:
+        console.print()
+        if not typer.confirm("Proceed?"):
+            console.print("Aborted — nothing removed.")
+            raise typer.Exit(code=1)
+
+    apply_uninstall(entry, lock, home)
+    console.print(f"\nUninstalled [bold]{package_id}[/bold] {entry['version']}")
