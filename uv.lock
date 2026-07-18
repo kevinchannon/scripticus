@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 [manifest]
 members = [
     "scripticus",
+    "scripticus-server",
 ]
 
 [[package]]
@@ -115,6 +116,29 @@ wheels = [
 name = "scripticus"
 version = "0.1.0"
 source = { editable = "client" }
+dependencies = [
+    { name = "rich" },
+    { name = "typer" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rich", specifier = ">=13" },
+    { name = "typer", specifier = ">=0.16" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
+
+[[package]]
+name = "scripticus-server"
+version = "0.1.0"
+source = { editable = "server" }
 dependencies = [
     { name = "rich" },
     { name = "typer" },

@@ -5,11 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current state
 
 Implementation has just begun. The repo is a **uv workspace** (Cargo-style)
-that will house both the client and the server; currently the only member is
-`client/`, a Typer + Rich CLI packaged as `scripticus`. The design docs below
-describe the intended v1.0.0 and remain the source of truth for architecture.
-Python on both sides (CLI client, and a FastAPI index service fronting
-Gitea), per decision D13.
+with two members: `client/` (PyPI package `scripticus`, the CLI) and
+`server/` (PyPI package `scripticus-server`, providing the `scripticus-svr`
+command; will become the FastAPI index service fronting Gitea per D13). Both
+are Typer + Rich CLIs that so far only implement `-v`/`--version`. The design
+docs below describe the intended v1.0.0 and remain the source of truth for
+architecture.
 
 ## Commands
 
@@ -20,23 +21,30 @@ $ uv sync                          # create/update the workspace environment
 $ uv run pytest                    # run all tests
 $ uv run pytest client/tests/test_cli.py::test_bare_invocation_shows_help
                                    # run a single test
-$ uv run scripticus -v             # run the CLI
+$ uv run scripticus -v             # run the client CLI
+$ uv run scripticus-svr -v         # run the server CLI
 $ uv build --package scripticus    # build the client wheel/sdist into dist/
+$ uv build --package scripticus-server
 ```
 
 ## Code layout
 
 - Workspace root [pyproject.toml](pyproject.toml) is virtual (no `[project]`
-  table) — it only declares workspace members. Add `server/` and `shared/`
-  there as they come into existence.
-- `client/` — the `scripticus` package (src layout, `uv_build` backend).
-  CLI entry point is the Typer app in
-  [cli.py](client/src/scripticus/cli.py); the console script maps
-  `scripticus` to `scripticus.cli:app`. Tests live in `client/tests/` and
-  use Typer's `CliRunner`.
-- The version has a single source: `[project.version]` in
-  [client/pyproject.toml](client/pyproject.toml), read at runtime via
-  `importlib.metadata`.
+  table) — it declares workspace members and shared pytest config (importlib
+  import mode, so same-named test modules in different members coexist). Add
+  `shared/` there when the manifest schema first needs to exist on both
+  sides.
+- `client/` and `server/` are structured identically (src layout, `uv_build`
+  backend): a Typer app in `cli.py` mapped to the console script
+  (`scripticus` → `scripticus.cli:app`, `scripticus-svr` →
+  `scripticus_server.cli:app`), tests in `<member>/tests/` using Typer's
+  `CliRunner`, pytest in the member's `dev` dependency group.
+- Each member's version has a single source: `[project.version]` in its
+  `pyproject.toml`, read at runtime via `importlib.metadata`.
+- README split: the root [README.md](README.md) is the project overview and
+  developer guide; [client/README.md](client/README.md) is the client's PyPI
+  page (install/usage/authoring docs); [server/README.md](server/README.md)
+  is the server's PyPI page (registry standup docs).
 
 ## Documents and their roles
 

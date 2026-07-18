@@ -32,11 +32,17 @@ jobs:
     - name: Run tests
       run: uv run pytest --tb=short
 
-    - name: Test CLI version command
+    - name: Test client CLI version command
       run: uv run scripticus --version
 
-    - name: Test CLI help
+    - name: Test client CLI help
       run: uv run scripticus --help
+
+    - name: Test server CLI version command
+      run: uv run scripticus-svr --version
+
+    - name: Test server CLI help
+      run: uv run scripticus-svr --help
 
   lint:
     runs-on: ubuntu-latest
