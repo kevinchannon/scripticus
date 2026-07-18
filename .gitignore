@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# uv / virtual environments
+.venv/
+
+# Build artifacts
+dist/
+build/
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/

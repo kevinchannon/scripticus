@@ -4,11 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This repository is **design-docs only — no code exists yet**. There are no
-build, lint, or test commands. The docs describe the intended v1.0.0 of
-Scripticus, a package manager and registry for scripts. When implementation
-begins, it will be Python on both sides (CLI client, and a FastAPI index
-service fronting Gitea), per decision D13.
+Implementation has just begun. The repo is a **uv workspace** (Cargo-style)
+that will house both the client and the server; currently the only member is
+`client/`, a Typer + Rich CLI packaged as `scripticus`. The design docs below
+describe the intended v1.0.0 and remain the source of truth for architecture.
+Python on both sides (CLI client, and a FastAPI index service fronting
+Gitea), per decision D13.
+
+## Commands
+
+All run from the repository root:
+
+```console
+$ uv sync                          # create/update the workspace environment
+$ uv run pytest                    # run all tests
+$ uv run pytest client/tests/test_cli.py::test_bare_invocation_shows_help
+                                   # run a single test
+$ uv run scripticus -v             # run the CLI
+$ uv build --package scripticus    # build the client wheel/sdist into dist/
+```
+
+## Code layout
+
+- Workspace root [pyproject.toml](pyproject.toml) is virtual (no `[project]`
+  table) — it only declares workspace members. Add `server/` and `shared/`
+  there as they come into existence.
+- `client/` — the `scripticus` package (src layout, `uv_build` backend).
+  CLI entry point is the Typer app in
+  [cli.py](client/src/scripticus/cli.py); the console script maps
+  `scripticus` to `scripticus.cli:app`. Tests live in `client/tests/` and
+  use Typer's `CliRunner`.
+- The version has a single source: `[project.version]` in
+  [client/pyproject.toml](client/pyproject.toml), read at runtime via
+  `importlib.metadata`.
 
 ## Documents and their roles
 
