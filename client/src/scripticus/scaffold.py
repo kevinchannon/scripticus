@@ -1,13 +1,14 @@
 """Package scaffolding for `scripticus new`."""
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Package names are kebab-case (enforced again at publish; validated here so
-# authors find out before they have written any code).
-PACKAGE_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+from scripticus.manifest import (  # noqa: F401  (re-exported for cli validation)
+    LANGUAGES,
+    NAMESPACE_RE,
+    PACKAGE_NAME_RE,
+)
 
 
 class ScaffoldError(Exception):
@@ -15,8 +16,7 @@ class ScaffoldError(Exception):
 
 
 @dataclass(frozen=True)
-class Language:
-    extension: str
+class ScaffoldTemplate:
     entrypoint_template: str
     default_os: tuple[str, ...]
     executable: bool
@@ -39,16 +39,11 @@ POWERSHELL_MAIN = """\
 Write-Output "Hello from {name}!"
 """
 
-LANGUAGES: dict[str, Language] = {
-    "bash": Language("sh", BASH_MAIN, ("linux", "macos"), executable=True),
-    "python": Language("py", PYTHON_MAIN, ("linux", "macos", "windows"), executable=True),
-    "powershell": Language("ps1", POWERSHELL_MAIN, ("windows",), executable=False),
+TEMPLATES: dict[str, ScaffoldTemplate] = {
+    "bash": ScaffoldTemplate(BASH_MAIN, ("linux", "macos"), executable=True),
+    "python": ScaffoldTemplate(PYTHON_MAIN, ("linux", "macos", "windows"), executable=True),
+    "powershell": ScaffoldTemplate(POWERSHELL_MAIN, ("windows",), executable=False),
 }
-
-# Lower-case letters, digits, and dashes, starting with a letter. Stricter
-# than Gitea's own username rules (which also allow '.', '_', and upper
-# case): a namespace must satisfy both.
-NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 
 MANIFEST_TEMPLATE = """\
 [package]
@@ -79,7 +74,7 @@ def scaffold_package(language: str, name: str, namespace: str, parent: Path) -> 
 
     Returns the created paths (directories and files), in creation order.
     """
-    lang = LANGUAGES[language]
+    template = TEMPLATES[language]
 
     package_dir = parent / name
     if package_dir.exists():
@@ -87,27 +82,27 @@ def scaffold_package(language: str, name: str, namespace: str, parent: Path) -> 
 
     src_dir = package_dir / "src"
     test_dir = package_dir / "test"
-    entrypoint = src_dir / f"main.{lang.extension}"
+    entrypoint = src_dir / f"main.{LANGUAGES[language].extension}"
 
     created: list[Path] = []
     for directory in (package_dir, src_dir, test_dir):
         directory.mkdir(parents=True)
         created.append(directory)
 
-    os_list = ", ".join(f'"{os_name}"' for os_name in lang.default_os)
+    os_list = ", ".join(f'"{os_name}"' for os_name in template.default_os)
     files = {
         package_dir / "meta.toml": MANIFEST_TEMPLATE.format(
             name=name, namespace=namespace, language=language, os_list=os_list
         ),
         package_dir / "LICENSE": LICENSE_TEMPLATE,
         package_dir / "README.md": README_TEMPLATE.format(name=name),
-        entrypoint: lang.entrypoint_template.format(name=name),
+        entrypoint: template.entrypoint_template.format(name=name),
     }
     for path, content in files.items():
         path.write_text(content)
         created.append(path)
 
-    if lang.executable and os.name != "nt":
+    if template.executable and os.name != "nt":
         entrypoint.chmod(0o755)
 
     return created

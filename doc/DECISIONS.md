@@ -543,3 +543,28 @@ set in which every target platform receives its native format.
   identical, differing only in container — mildly redundant in storage, and
   the content hash (D3) covers the directory tree, so both containers carry
   the same content identity.
+
+---
+
+## D27. Concrete tree-hash algorithm: sha256 Merkle over names + contents, modes excluded
+
+**Decision**: The D3 content hash is computed as: each file hashes to
+sha256 of its raw bytes; each directory hashes to sha256 of its entry
+listing — one line per child, `blob|tree <hex> <name>\n`, sorted by name —
+and the package identity is the root directory's hash, rendered
+`sha256:<hex>`. File modes (including the executable bit) are **not** part
+of the hash.
+
+**Reason**: Git-style Merkle hashing gives a stable identity for arbitrary
+trees with no serialisation ambiguity. Modes are excluded, unlike git,
+because zip extraction drops the executable bit: the same content must hash
+identically whichever archive container it travelled in (a cross-platform
+package ships as both `.tar.gz` and `.zip` per D26), and shims invoke the
+interpreter explicitly (D11) so nothing functional depends on the bit.
+
+**Consequences**:
+- Good: container-independent and platform-independent identity; the
+  algorithm is small enough to reimplement server-side identically (it must
+  be — the index will verify it at publish).
+- Bad: a change that only flips a file's executable bit does not change the
+  package's identity.

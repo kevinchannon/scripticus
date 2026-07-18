@@ -9,9 +9,13 @@ with two members: `client/` (PyPI package `scripticus`, the CLI) and
 `server/` (PyPI package `scripticus-server`, providing the `scripticus-svr`
 command; will become the FastAPI index service fronting Gitea per D13). Both
 are Typer + Rich CLIs. The client implements `-v`/`--version`, `new`
-(package scaffolding, logic in `scaffold.py`), and `pack` (manifest
-validation + archive creation, logic in `pack.py`); the server only
-`-v`/`--version` so far. The design docs below describe the intended v1.0.0
+(scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`), and
+`install -f` (local install: extraction, transaction flow, shims, lockfile —
+`install.py`). Manifest validation shared by pack/install lives in
+`manifest.py` (the seed of the future `shared/` schema package); the D3/D27
+content hash in `treehash.py`. Client-side state goes under `~/.scripticus/`
+(override with `SCRIPTICUS_HOME`, which tests rely on). The server only
+implements `-v`/`--version` so far. The design docs below describe the intended v1.0.0
 and remain the source of truth for architecture.
 
 ## Commands
