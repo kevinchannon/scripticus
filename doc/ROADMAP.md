@@ -82,7 +82,11 @@ control rather than cryptographic assurance.
 ### Client (CLI)
 
 - [ ] Python CLI: `search`, `install`, `update`, `uninstall`, `publish`,
-      `new`, `use`, `config`.
+      `new`, `pack`, `use`, `config`.
+- [x] `pack <dir> [-o <dir>]`: validate the manifest, then archive the
+      package directory with wheel-style filename tags — one archive per
+      format the declared targets call for (`.tar.gz` for POSIX/macOS,
+      `.zip` for Windows; both when both are targeted, per D26).
 - [ ] `install <ns/name>[@version]` with bare-name resolution via a
       user-configurable namespace search path (Homebrew-tap-style). Bare names
       are purely a client-side resolution convenience; stored identity is

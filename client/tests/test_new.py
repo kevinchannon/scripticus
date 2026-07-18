@@ -15,8 +15,12 @@ def in_tmp_path(tmp_path, monkeypatch):
     return tmp_path
 
 
+def new(*args: str):
+    return runner.invoke(app, ["new", *args])
+
+
 def test_new_bash_creates_documented_layout(in_tmp_path):
-    result = runner.invoke(app, ["new", "bash", "my-cool-script"])
+    result = new("bash", "my-cool-script", "-n", "acme")
     assert result.exit_code == 0
 
     pkg = in_tmp_path / "my-cool-script"
@@ -28,24 +32,24 @@ def test_new_bash_creates_documented_layout(in_tmp_path):
 
 
 def test_manifest_is_valid_toml_with_expected_fields(in_tmp_path):
-    runner.invoke(app, ["new", "bash", "my-cool-script"])
+    new("bash", "my-cool-script", "-n", "acme")
 
     manifest = tomllib.loads((in_tmp_path / "my-cool-script" / "meta.toml").read_text())
     assert manifest["package"]["name"] == "my-cool-script"
+    assert manifest["package"]["namespace"] == "acme"
     assert manifest["package"]["language"] == "bash"
     assert manifest["package"]["version"] == "0.1.0"
-    assert manifest["package"]["namespace"] == ""
     assert manifest["platforms"]["os"] == ["linux", "macos"]
 
 
 def test_python_package_gets_python_entrypoint(in_tmp_path):
-    result = runner.invoke(app, ["new", "python", "my-tool"])
+    result = new("python", "my-tool", "--namespace", "acme")
     assert result.exit_code == 0
     assert (in_tmp_path / "my-tool" / "src" / "main.py").is_file()
 
 
 def test_powershell_package_gets_ps1_entrypoint_and_windows_platform(in_tmp_path):
-    result = runner.invoke(app, ["new", "powershell", "my-tool"])
+    result = new("powershell", "my-tool", "-n", "acme")
     assert result.exit_code == 0
     assert (in_tmp_path / "my-tool" / "src" / "main.ps1").is_file()
 
@@ -55,13 +59,27 @@ def test_powershell_package_gets_ps1_entrypoint_and_windows_platform(in_tmp_path
 
 @pytest.mark.skipif(os.name == "nt", reason="no executable bit on Windows")
 def test_posix_entrypoint_is_executable(in_tmp_path):
-    runner.invoke(app, ["new", "bash", "my-cool-script"])
+    new("bash", "my-cool-script", "-n", "acme")
     mode = (in_tmp_path / "my-cool-script" / "src" / "main.sh").stat().st_mode
     assert mode & 0o111
 
 
+def test_namespace_is_required(in_tmp_path):
+    result = new("bash", "my-cool-script")
+    assert result.exit_code != 0
+    assert "--namespace" in result.output
+    assert not (in_tmp_path / "my-cool-script").exists()
+
+
+@pytest.mark.parametrize("bad_namespace", ["has space", "slash/ns", ".leading-dot", ""])
+def test_invalid_namespace_is_rejected(in_tmp_path, bad_namespace):
+    result = new("bash", "my-cool-script", "-n", bad_namespace)
+    assert result.exit_code != 0
+    assert not (in_tmp_path / "my-cool-script").exists()
+
+
 def test_unknown_language_is_rejected(in_tmp_path):
-    result = runner.invoke(app, ["new", "cobol", "my-cool-script"])
+    result = new("cobol", "my-cool-script", "-n", "acme")
     assert result.exit_code != 0
     assert "unknown language" in result.output
     assert not (in_tmp_path / "my-cool-script").exists()
@@ -69,7 +87,7 @@ def test_unknown_language_is_rejected(in_tmp_path):
 
 @pytest.mark.parametrize("bad_name", ["Has-Caps", "under_scores", "-leading-dash", "trailing-", "spa ce"])
 def test_non_kebab_case_name_is_rejected(in_tmp_path, bad_name):
-    result = runner.invoke(app, ["new", "bash", bad_name])
+    result = new("bash", bad_name, "-n", "acme")
     assert result.exit_code != 0
     if not bad_name.startswith("-"):
         # A leading-dash name is rejected earlier, as an unknown option.
@@ -79,6 +97,6 @@ def test_non_kebab_case_name_is_rejected(in_tmp_path, bad_name):
 
 def test_existing_directory_is_refused(in_tmp_path):
     (in_tmp_path / "my-cool-script").mkdir()
-    result = runner.invoke(app, ["new", "bash", "my-cool-script"])
+    result = new("bash", "my-cool-script", "-n", "acme")
     assert result.exit_code == 1
     assert "already exists" in result.output

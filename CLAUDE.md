@@ -8,8 +8,9 @@ Implementation has just begun. The repo is a **uv workspace** (Cargo-style)
 with two members: `client/` (PyPI package `scripticus`, the CLI) and
 `server/` (PyPI package `scripticus-server`, providing the `scripticus-svr`
 command; will become the FastAPI index service fronting Gitea per D13). Both
-are Typer + Rich CLIs. The client implements `-v`/`--version` and `new`
-(package scaffolding, logic in `scaffold.py`); the server only
+are Typer + Rich CLIs. The client implements `-v`/`--version`, `new`
+(package scaffolding, logic in `scaffold.py`), and `pack` (manifest
+validation + archive creation, logic in `pack.py`); the server only
 `-v`/`--version` so far. The design docs below describe the intended v1.0.0
 and remain the source of truth for architecture.
 

@@ -518,3 +518,28 @@ than who reads it.
   encountering `meta.toml` in a repo doesn't tell you Scripticus is involved
   (a branded name would), and other ecosystems could plausibly use the same
   filename for their own purposes.
+
+---
+
+## D26. `pack` emits one archive per format group of the declared targets
+
+**Decision**: Packing a package produces one archive per archive-format
+group its manifest targets: a `.tar.gz` covering the POSIX/macOS targets
+(platform tag e.g. `linux.macos`), and a `.zip` covering Windows. A package
+targeting both groups yields two archives with identical content; one
+targeting a single group yields one.
+
+**Reason**: D7 fixes the format per platform but is silent on
+multi-platform packages. A single archive would force one group to consume
+the other's format; one archive per OS would duplicate byte-identical
+content for linux and macos for no benefit. Per-format-group is the minimal
+set in which every target platform receives its native format.
+
+**Consequences**:
+- Good: consumers always get their platform's conventional format; no
+  redundant identical archives within a format group.
+- Good: the archive set is a pure function of the manifest's platform list.
+- Bad: a cross-platform package publishes two artifacts whose content is
+  identical, differing only in container — mildly redundant in storage, and
+  the content hash (D3) covers the directory tree, so both containers carry
+  the same content identity.

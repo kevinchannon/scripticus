@@ -45,10 +45,13 @@ LANGUAGES: dict[str, Language] = {
     "powershell": Language("ps1", POWERSHELL_MAIN, ("windows",), executable=False),
 }
 
+# Namespaces map to Gitea users/organisations, which allow letters, digits,
+# dots, dashes, and underscores.
+NAMESPACE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
+
 MANIFEST_TEMPLATE = """\
 [package]
-# TODO: set to your publishing namespace (a Gitea user or organisation)
-namespace = ""
+namespace = "{namespace}"
 name = "{name}"
 version = "0.1.0"
 language = "{language}"
@@ -70,7 +73,7 @@ TODO: describe {name}.
 """
 
 
-def scaffold_package(language: str, name: str, parent: Path) -> list[Path]:
+def scaffold_package(language: str, name: str, namespace: str, parent: Path) -> list[Path]:
     """Create a new package skeleton under ``parent / name``.
 
     Returns the created paths (directories and files), in creation order.
@@ -93,7 +96,7 @@ def scaffold_package(language: str, name: str, parent: Path) -> list[Path]:
     os_list = ", ".join(f'"{os_name}"' for os_name in lang.default_os)
     files = {
         package_dir / "meta.toml": MANIFEST_TEMPLATE.format(
-            name=name, language=language, os_list=os_list
+            name=name, namespace=namespace, language=language, os_list=os_list
         ),
         package_dir / "LICENSE": LICENSE_TEMPLATE,
         package_dir / "README.md": README_TEMPLATE.format(name=name),

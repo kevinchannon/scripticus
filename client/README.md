@@ -128,8 +128,12 @@ $ scripticus run infra/backup-rotate -- --dry-run
 ### Scaffolding
 
 ```console
-$ scripticus new bash my-cool-script
+$ scripticus new bash my-cool-script -n infra
 ```
+
+The namespace (`-n/--namespace`) is required: it is the namespace the
+package will be published under (a Gitea user or organisation), and it goes
+straight into the generated manifest.
 
 This creates:
 
@@ -200,6 +204,31 @@ non-conforming versions are rejected.
 > at publish nor install. If the manifest is wrong, the package will be wrong,
 > exactly as with a broken `pyproject.toml` or `package.json`. Test your
 > packages.
+
+### Packing
+
+To archive a package directory into a distributable artifact:
+
+```console
+$ scripticus pack path/to/my-cool-script-proj
+$ scripticus pack path/to/my-cool-script-proj -o builds   # write into builds/
+```
+
+The manifest is validated first; the archives land in the current directory
+unless `-o/--output` names another one (created if needed). One archive is
+produced per format the declared target platforms call for — `.tar.gz`
+covering the POSIX/macOS targets, `.zip` covering Windows — so a package
+targeting both produces two archives with identical content. Filenames carry
+wheel-style tags (name, version, platforms, language, with dashes in
+name/version normalised to underscores):
+
+```text
+my_tool-1.2.0-linux.macos-python.tar.gz
+my_tool-1.2.0-windows-python.zip
+```
+
+The filename is human-legible redundancy only; the manifest inside the
+archive is the source of truth.
 
 ### Publishing
 
