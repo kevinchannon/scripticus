@@ -88,6 +88,23 @@ def _semver_key(version: str):
 # --- Transaction preparation ----------------------------------------------
 
 
+def resolve_dependencies(dependencies: dict[str, str]) -> None:
+    """Resolver stub. Dependency resolution is server-side (D15) and no
+    registry exists to resolve against yet, so a declared package dependency
+    is an error rather than a silently absent dependency. Remote install
+    replaces this with real resolution.
+    """
+    if dependencies:
+        listed = ", ".join(
+            f"{name} ({constraint})" for name, constraint in sorted(dependencies.items())
+        )
+        raise InstallError(
+            f"cannot resolve package dependencies: {listed}"
+            " — resolution needs a registry, so local installs currently"
+            " support only dependency-free packages"
+        )
+
+
 @dataclass
 class Tool:
     name: str
@@ -112,7 +129,6 @@ class Transaction:
     commands: dict[str, str]
     required_tools: list[Tool] = field(default_factory=list)
     optional_tools: list[Tool] = field(default_factory=list)
-    unresolved_deps: dict[str, str] = field(default_factory=dict)
     conflicts: list[Conflict] = field(default_factory=list)
 
     @property
@@ -162,6 +178,8 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
                 f"package supports [{supported}] but this machine is {machine}"
             )
 
+        resolve_dependencies(dict(manifest.get("dependencies", {}).get("packages", {})))
+
         package = manifest["package"]
         lock = read_lockfile(home)
         entry = _find_entry(lock, package["namespace"], package["name"])
@@ -203,7 +221,6 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
             commands=commands,
             required_tools=required_tools,
             optional_tools=optional_tools,
-            unresolved_deps=dict(manifest.get("dependencies", {}).get("packages", {})),
             conflicts=conflicts,
         )
     except Exception:
@@ -273,7 +290,9 @@ def apply_install(transaction: Transaction, home: Path) -> None:
             "commands": sorted(transaction.commands),
             "direct": True,
             "provenance": {"type": "local", "source": str(transaction.source.resolve())},
-            "dependencies": transaction.unresolved_deps,
+            # Always empty until the resolver exists: resolve_dependencies
+            # rejects any package that declares dependencies.
+            "dependencies": {},
         }
     )
     lock["packages"].sort(key=lambda e: (e["namespace"], e["name"]))

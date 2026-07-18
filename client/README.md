@@ -83,7 +83,7 @@ Proceed? [y/N]
 
 Non-interactive use:
 
-- `-y` / `--force` (equivalent to `--force=no-conflicts`): accept the
+- `-y` / `--yes` (equivalent to `--force=no-conflicts`): accept the
   transaction, but **abort entirely** (nothing installed, non-zero exit) if it
   would overwrite an existing command shim.
 - `--force=all`: accept everything, including shim overwrites. Every

@@ -167,11 +167,6 @@ def _print_transaction(transaction: Transaction) -> None:
     tool_line("Required", transaction.required_tools, "")
     tool_line("Optional", transaction.optional_tools, " — some features degraded")
 
-    if transaction.unresolved_deps:
-        console.print("Package dependencies (not resolved for local installs):")
-        for dep, constraint in transaction.unresolved_deps.items():
-            console.print(f"  {dep}  {constraint}")
-
     if transaction.conflicts:
         console.print("\nShim conflicts:")
         for conflict in transaction.conflicts:

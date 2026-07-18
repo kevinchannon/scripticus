@@ -194,13 +194,15 @@ def test_missing_required_tool_is_reported(home, tmp_path):
     assert "definitely-not-a-real-tool-xyz" in result.output
 
 
-def test_unresolved_package_deps_are_shown(home, tmp_path):
+def test_declared_package_deps_are_an_error_until_the_resolver_exists(home, tmp_path):
     deps = '\n[dependencies.packages]\n"infra/log-common" = "^2.0"\n'
     archive = build_archive(tmp_path, extra_toml=deps)
 
-    result = runner.invoke(app, ["install", "-f", str(archive)], input="n\n")
-    assert "not resolved for local installs" in result.output
+    result = runner.invoke(app, ["install", "-f", str(archive), "-y"])
+    assert result.exit_code == 1
+    assert "cannot resolve package dependencies" in result.output
     assert "infra/log-common" in result.output
+    assert not (home / "installed.lock").exists()
 
 
 def test_archive_without_manifest_is_an_error(home, tmp_path):

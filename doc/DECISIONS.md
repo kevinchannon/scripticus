@@ -351,17 +351,22 @@ selection was rejected because it reintroduces partial-install ambiguity.
 
 ## D18. `--force=no-conflicts` / `--force=all`; bare `-y` = no-conflicts
 
-**Decision**: `-y`/`--force` auto-accepts the transaction but aborts it
-entirely (nothing installed, non-zero exit) on any shim conflict.
-`--force=all` accepts everything, logging each overwritten shim. Chosen over
-apt-style all-or-nothing `-y`.
+**Decision**: `-y`/`--yes` auto-accepts the transaction but aborts it
+entirely (nothing installed, non-zero exit) on any shim conflict; it is
+shorthand for `--force=no-conflicts`. `--force=all` accepts everything,
+logging each overwritten shim. `--force` always takes an explicit value —
+there is no bare `--force` flag. Chosen over apt-style all-or-nothing `-y`.
 
 **Reason**: Shims are execution-shadowing PATH entries; silently replacing
 one from a CI script is a real incident pattern (apt's `-y` has caused
 exactly this). Splitting the flag keeps scripted installs safe by default
 while keeping full automation available explicitly. Abort-rather-than-skip
 on conflict keeps the D17 invariant that exit codes never mean "partially
-installed".
+installed". Bare `--force` (originally specified as a second no-conflicts
+synonym) was dropped at implementation: an option that is both a flag and
+takes a value only accepts the value in `=` form, so `--force all` would
+silently parse `all` as a positional argument — an ambiguity worse than
+requiring the value.
 
 **Consequences**:
 - Good: safe-by-default automation; conflicts fail loudly, not silently.

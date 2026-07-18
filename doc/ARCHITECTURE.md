@@ -211,7 +211,7 @@ current owner of each affected shim.
 
 - Interactive: accept the whole transaction or abort. No per-item selection
   (it reintroduces partial-install ambiguity).
-- `-y`/`--force` = `--force=no-conflicts`: auto-accept, but any shim conflict
+- `-y`/`--yes` = `--force=no-conflicts`: auto-accept, but any shim conflict
   aborts the entire transaction (nothing installed, non-zero exit).
 - `--force=all`: auto-accept including overwrites; every overwritten shim is
   reported.

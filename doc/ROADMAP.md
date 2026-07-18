@@ -108,7 +108,7 @@ control rather than cryptographic assurance.
       distinctly; already-satisfied dependencies not listed as actions),
       (b) shim conflicts, shown distinctly and naming the namespaced package
       that currently owns each affected shim, then (c) prompt.
-- [ ] `--force=no-conflicts` (default for bare `-y`/`--force`): auto-accept
+- [ ] `--force=no-conflicts` (what bare `-y` means): auto-accept
       new installs, but abort the whole transaction (nothing installed,
       non-zero exit) on any shim conflict. `--force=all`: auto-accept
       everything, but log every overwritten shim. Interactive mode is
