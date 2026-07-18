@@ -114,7 +114,7 @@ control rather than cryptographic assurance.
       install state. No Conan-style profiles.
 - [ ] `config install <git-url>` to roll out org-wide client configuration
       (remotes, defaults) in one command (Conan-style).
-- [ ] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with
+- [x] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with
       language-appropriate entrypoint naming (e.g. `main.sh`, `main.py`,
       PascalCase for named PowerShell commands).
 - [ ] Editable/dev install (`pip install -e` equivalent): shim points at the

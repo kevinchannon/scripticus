@@ -115,7 +115,8 @@ own.
 
 ## D6. TOML manifest declaring platforms, language, tools, deps, commands
 
-**Decision**: Each package carries a TOML manifest (`scripticus.toml`)
+**Decision**: Each package carries a TOML manifest (originally
+`scripticus.toml`; renamed to `meta.toml` by D25)
 declaring identity, language, supported platforms (OS + optional distro
 narrowing), required/optional system tools, package dependencies, and
 optionally a `[commands]` table.
@@ -495,3 +496,25 @@ lockfile, and downloads bypass the index service (D9).
 - Bad: publish latency includes a live Gitea round-trip (negligible at
   publish frequency); usage metrics, if ever wanted, require deliberate new
   design interacting with D9.
+
+---
+
+## D25. The package manifest file is named `meta.toml`, not `scripticus.toml`
+
+**Decision**: The manifest at a package's root is `meta.toml`. This renames
+the `scripticus.toml` filename originally chosen in D6.
+
+**Reason**: A file named after the tool suggests *configuration of
+Scripticus* — and Scripticus configuration genuinely exists elsewhere
+(`~/.scripticus/config.toml`, org-distributed via D12). `meta.toml` cleanly
+disambiguates the two kinds of file: the manifest is metadata *about the
+package*, not settings *for the tool*. The name says what the file is rather
+than who reads it.
+
+**Consequences**:
+- Good: no ambiguity between package metadata and Scripticus configuration;
+  the distinction survives future config files without further renames.
+- Bad: the generic name doesn't identify the consuming tool on sight —
+  encountering `meta.toml` in a repo doesn't tell you Scripticus is involved
+  (a branded name would), and other ecosystems could plausibly use the same
+  filename for their own purposes.

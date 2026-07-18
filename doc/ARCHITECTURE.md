@@ -65,7 +65,7 @@ A package is a directory, archived for transport (`.tar.gz` POSIX/macOS,
 
 ```text
 <pkg>/
-├── scripticus.toml     # manifest
+├── meta.toml           # manifest
 ├── LICENSE
 ├── README.md
 ├── src/                # scripts; main.<ext> if no [commands] table

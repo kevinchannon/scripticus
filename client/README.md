@@ -135,7 +135,7 @@ This creates:
 
 ```text
 my-cool-script/
-├── scripticus.toml
+├── meta.toml
 ├── LICENSE
 ├── README.md
 ├── src/
