@@ -15,7 +15,7 @@ from scripticus.install import (
     scripticus_home,
 )
 from scripticus.manifest import ManifestError
-from scripticus.pack import pack_package
+from scripticus.pack import PackError, pack_package
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -119,7 +119,7 @@ def pack(
     """Archive a package directory into a distributable artifact."""
     try:
         archive_paths = pack_package(package_dir, output)
-    except ManifestError as exc:
+    except (ManifestError, PackError) as exc:
         console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 

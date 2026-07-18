@@ -49,6 +49,17 @@ def test_tarball_preserves_entrypoint_executable_bit(in_tmp_path):
         assert member.mode & 0o111
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows forbids control characters in file names")
+def test_control_character_in_file_name_is_rejected(in_tmp_path):
+    pkg = make_package(in_tmp_path)
+    (pkg / "src" / "evil\nname.sh").write_text("echo hi")
+
+    result = runner.invoke(app, ["pack", str(pkg)])
+    assert result.exit_code == 1
+    assert "control characters" in result.output
+    assert "evil" in result.output
+
+
 def test_pack_windows_package_produces_zip(in_tmp_path):
     pkg = make_package(in_tmp_path, language="powershell", name="my-tool")
 

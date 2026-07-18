@@ -1,3 +1,4 @@
+import hashlib
 import os
 
 import pytest
@@ -39,6 +40,17 @@ def test_rename_changes_hash(tmp_path):
 def test_moving_file_between_directories_changes_hash(tmp_path):
     make_tree(tmp_path / "a", {"src/main.py": "print(1)"})
     make_tree(tmp_path / "b", {"main.py": "print(1)"})
+    assert tree_hash(tmp_path / "a") != tree_hash(tmp_path / "b")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows forbids newlines in file names")
+def test_newline_in_name_cannot_forge_listing_records(tmp_path):
+    # A two-file tree, and a one-file tree whose single name is crafted so
+    # that a delimiter-based listing would render both trees as identical
+    # bytes. The length prefix (D27) must keep their hashes distinct.
+    make_tree(tmp_path / "a", {"a": "X", "b": "Y"})
+    y_hash = hashlib.sha256(b"Y").hexdigest()
+    make_tree(tmp_path / "b", {f"a\nblob {y_hash} 1:b": "X"})
     assert tree_hash(tmp_path / "a") != tree_hash(tmp_path / "b")
 
 

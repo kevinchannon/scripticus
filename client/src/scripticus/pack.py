@@ -6,6 +6,11 @@ from pathlib import Path
 
 from scripticus.manifest import load_manifest
 
+
+class PackError(Exception):
+    """A package directory cannot be archived."""
+
+
 # Junk that must never end up inside a distributed artifact.
 EXCLUDED_NAMES = {".git", "__pycache__", ".DS_Store"}
 
@@ -56,6 +61,17 @@ def pack_package(package_dir: Path, output_dir: Path) -> list[Path]:
     """
     manifest = load_manifest(package_dir)
     root = manifest["package"]["name"]
+
+    # Control characters in file names are never intentional in a script
+    # package, and archive tools disagree on how to represent them (D27).
+    bad_names = sorted(
+        str(relative)
+        for _, relative in _iter_package_paths(package_dir)
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in str(relative))
+    )
+    if bad_names:
+        listed = ", ".join(repr(name) for name in bad_names)
+        raise PackError(f"file names contain control characters: {listed}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

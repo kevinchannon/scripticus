@@ -2,9 +2,11 @@
 
 The canonical identity of a package artifact is the hash of its directory
 tree, git-style: files hash their contents, directories hash their sorted
-entry listing. File modes are deliberately excluded — zip extraction drops
-the executable bit, and the same content must hash identically whichever
-archive container it travelled in (D26).
+entry listing. Entry names are length-prefixed in the listing so the
+encoding is injective — a crafted file name cannot forge record structure,
+so distinct trees cannot hash identically (D27). File modes are deliberately
+excluded — zip extraction drops the executable bit, and the same content
+must hash identically whichever archive container it travelled in (D26).
 """
 
 import hashlib
@@ -16,13 +18,13 @@ def _blob_hash(path: Path) -> str:
 
 
 def _tree_digest(directory: Path) -> str:
-    lines = []
+    records = []
     for child in sorted(directory.iterdir(), key=lambda p: p.name):
-        if child.is_dir():
-            lines.append(f"tree {_tree_digest(child)} {child.name}\n")
-        else:
-            lines.append(f"blob {_blob_hash(child)} {child.name}\n")
-    return hashlib.sha256("".join(lines).encode()).hexdigest()
+        kind = "tree" if child.is_dir() else "blob"
+        digest = _tree_digest(child) if child.is_dir() else _blob_hash(child)
+        name = child.name.encode()
+        records.append(b"%s %s %d:%s\n" % (kind.encode(), digest.encode(), len(name), name))
+    return hashlib.sha256(b"".join(records)).hexdigest()
 
 
 def tree_hash(directory: Path) -> str:

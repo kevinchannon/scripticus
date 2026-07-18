@@ -555,21 +555,32 @@ set in which every target platform receives its native format.
 
 **Decision**: The D3 content hash is computed as: each file hashes to
 sha256 of its raw bytes; each directory hashes to sha256 of its entry
-listing — one line per child, `blob|tree <hex> <name>\n`, sorted by name —
-and the package identity is the root directory's hash, rendered
-`sha256:<hex>`. File modes (including the executable bit) are **not** part
-of the hash.
+listing — one record per child, `blob|tree <hex> <byte-length>:<name>\n`,
+sorted by name, with the name's UTF-8 byte length prefixed — and the
+package identity is the root directory's hash, rendered `sha256:<hex>`.
+File modes (including the executable bit) are **not** part of the hash.
+`pack` additionally rejects file names containing control characters.
 
 **Reason**: Git-style Merkle hashing gives a stable identity for arbitrary
-trees with no serialisation ambiguity. Modes are excluded, unlike git,
-because zip extraction drops the executable bit: the same content must hash
-identically whichever archive container it travelled in (a cross-platform
-package ships as both `.tar.gz` and `.zip` per D26), and shims invoke the
-interpreter explicitly (D11) so nothing functional depends on the bit.
+trees. The length prefix makes the listing encoding injective: without it,
+a file name containing a newline could embed forged listing records,
+letting two distinct trees hash identically — fatal for an identity that
+signing and server-side verification will anchor to (D1). Git solves the
+same problem with NUL-terminated binary records; a length prefix does the
+job while keeping the listing printable. The control-character check is
+belt-and-braces UX, not a hash-safety requirement: such names are never
+intentional in a script package, so rejecting them at pack time gives
+authors a clear early error. Modes are excluded, unlike git, because zip
+extraction drops the executable bit: the same content must hash identically
+whichever archive container it travelled in (a cross-platform package ships
+as both `.tar.gz` and `.zip` per D26), and shims invoke the interpreter
+explicitly (D11) so nothing functional depends on the bit.
 
 **Consequences**:
 - Good: container-independent and platform-independent identity; the
   algorithm is small enough to reimplement server-side identically (it must
   be — the index will verify it at publish).
+- Good: distinct trees provably hash differently; no filename can forge
+  listing structure.
 - Bad: a change that only flips a file's executable bit does not change the
   package's identity.
