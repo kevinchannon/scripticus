@@ -7,3 +7,10 @@ import os
 # any module-level Console is created. A dumb terminal disables all styling.
 os.environ["TERM"] = "dumb"
 os.environ.pop("FORCE_COLOR", None)
+
+# Pin the console width too: Rich's non-terminal fallback is 80 columns on
+# POSIX but 79 on Windows (it reserves the last column against the legacy
+# console's auto-newline bug), which moves the word-wrap point and breaks
+# substring assertions that straddle it. A generous fixed width keeps
+# one-line messages unwrapped on every platform.
+os.environ["COLUMNS"] = "120"
