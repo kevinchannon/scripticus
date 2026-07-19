@@ -1,10 +1,9 @@
-from collections.abc import Iterator
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from scripticus_schema.index_api import (
     PackageSummary,
@@ -14,6 +13,8 @@ from scripticus_schema.index_api import (
 )
 from scripticus_schema.semver import semver_key
 from scripticus_server import __version__, db
+from scripticus_server.db import get_session
+from scripticus_server.publish import router as publish_router
 
 app = FastAPI(
     title="Scripticus index service",
@@ -23,20 +24,7 @@ app = FastAPI(
     ),
     version=__version__,
 )
-
-_session_factory: sessionmaker | None = None
-
-
-def get_session() -> Iterator[Session]:
-    # Lazy so that importing the app never touches the database; tables are
-    # created on first use (D31: create_all until the schema stabilises).
-    global _session_factory
-    if _session_factory is None:
-        engine = db.make_engine()
-        db.init_db(engine)
-        _session_factory = sessionmaker(bind=engine)
-    with _session_factory() as session:
-        yield session
+app.include_router(publish_router)
 
 
 # Local to the server on purpose: a liveness shape is not part of the

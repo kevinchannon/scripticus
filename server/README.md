@@ -44,17 +44,40 @@ balancers and container orchestrators.
 
 The index database defaults to a local SQLite file
 (`scripticus-index.db`); set `SCRIPTICUS_INDEX_DB` to any SQLAlchemy URL
-to point elsewhere. Tables are created automatically on first use. Note
-that publishing doesn't exist yet, so a fresh index is empty until it
-lands.
+to point elsewhere. Tables are created automatically on first use.
+
+### Publishing
+
+`POST /packages` publishes a package: a multipart upload of one archive
+(as produced by `scripticus pack`) with your Gitea token in the
+`Authorization` header:
+
+```console
+$ curl -X POST http://localhost:8000/packages \
+    -H "Authorization: token <your-gitea-token>" \
+    -F archive=@my_tool-1.0.0-linux.macos-bash.tar.gz
+```
+
+The server trusts nothing about the upload: it re-validates the manifest
+and package tree, computes the content hash, checks with Gitea (live)
+that your token may publish to the manifest's namespace — your own
+username, or an organisation you belong to — stores the blob in Gitea's
+generic package registry, and only then commits the index record.
+Versions are immutable; the one addition an existing version accepts is
+an artifact in a new archive format carrying the identical content hash.
+Declared package dependencies must be fully namespaced and already
+present in the index, and a publish that would create a dependency cycle
+is rejected. The `library` namespace is reserved. The Gitea instance is
+configured with `SCRIPTICUS_GITEA_URL` (default `http://localhost:3000`).
 
 ### Docker
 
 Server releases publish a Docker image to
 [`kevinchannon/scripticus-server`](https://hub.docker.com/r/kevinchannon/scripticus-server)
-(tagged with the release version and `latest`). The repository ships a
-`docker-compose.yml` running it as a single container — no checkout
-needed:
+(tagged with the release version and `latest`). The repository's
+`docker-compose.yml` is the full registry bundle — the index service plus
+the Gitea instance that provides storage, authentication, and namespace
+ownership — and needs no checkout:
 
 ```console
 $ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
@@ -63,15 +86,17 @@ $ curl http://localhost:8000/health
 {"status":"ok"}
 ```
 
-The intended v1 deployment pairs the index service with a Gitea instance
-that provides storage, authentication, and namespace ownership; Gitea
-integration doesn't exist yet, so the compose file is currently
-server-only and does not stand up a working registry.
+First-run Gitea setup: accounts and organisations are managed in Gitea
+(http://localhost:3000), and a Scripticus namespace *is* a Gitea user or
+organisation, claimed first-come-first-served, with publish rights
+following Gitea's own membership and ACLs. So, once the bundle is up:
 
-Once Gitea is part of the bundle: accounts and organisations are managed
-in Gitea; a Scripticus namespace is a Gitea user or organisation, claimed
-first-come-first-served, and publish rights follow Gitea's own membership
-and ACLs. The `library` namespace is reserved.
+1. Register your user in the Gitea web UI (the first registered user is
+   the instance admin), and create an organisation for any shared
+   namespace you want.
+2. Generate a token under *Settings → Applications → Manage Access
+   Tokens* with package write and user read scopes.
+3. Publish with that token (see above).
 
 ## Licence
 

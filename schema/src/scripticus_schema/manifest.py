@@ -25,6 +25,12 @@ NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 
 KNOWN_OS = ("linux", "macos", "windows")
 
+# One archive per format group: POSIX/macOS targets travel as .tar.gz,
+# Windows as .zip (D26). The client packs by this table; the server checks
+# at publish that an uploaded archive's format matches the manifest's
+# declared platforms.
+FORMAT_GROUPS = (("tar.gz", ("linux", "macos")), ("zip", ("windows",)))
+
 
 @dataclass(frozen=True)
 class Language:

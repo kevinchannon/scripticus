@@ -3,5 +3,10 @@ members = ["client", "schema", "server"]
 
 [tool.pytest.ini_options]
 # importlib mode lets same-named test modules in different members coexist
-# without per-directory __init__.py files.
-addopts = "--import-mode=importlib"
+# without per-directory __init__.py files. e2e tests (real Gitea) are
+# deselected by default; run them with `pytest -m e2e` (the command line
+# overrides the -m here).
+addopts = "--import-mode=importlib -m 'not e2e'"
+markers = [
+    "e2e: end-to-end tests needing a real Gitea (SCRIPTICUS_E2E_GITEA_*)",
+]

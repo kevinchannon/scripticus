@@ -10,10 +10,18 @@ manifest blob, never independently editable (D21).
 """
 
 import os
+from collections.abc import Iterator
 
 from sqlalchemy import ForeignKey, Text, UniqueConstraint, create_engine
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    relationship,
+    sessionmaker,
+)
 
 DEFAULT_DB_URL = "sqlite:///scripticus-index.db"
 
@@ -28,6 +36,22 @@ def make_engine(url: str | None = None) -> Engine:
 
 def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
+
+
+_session_factory: sessionmaker | None = None
+
+
+def get_session() -> Iterator[Session]:
+    # FastAPI dependency. Lazy so that importing the app never touches the
+    # database; tables are created on first use (D31: create_all until the
+    # schema stabilises).
+    global _session_factory
+    if _session_factory is None:
+        engine = make_engine()
+        init_db(engine)
+        _session_factory = sessionmaker(bind=engine)
+    with _session_factory() as session:
+        yield session
 
 
 class Base(DeclarativeBase):

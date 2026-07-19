@@ -12,7 +12,8 @@ FROM python:3.12-slim
 COPY --from=build /wheels /wheels
 RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
 
-RUN useradd --create-home scripticus
+RUN useradd --create-home scripticus \
+    && mkdir /data && chown scripticus /data
 USER scripticus
 
 EXPOSE 8000

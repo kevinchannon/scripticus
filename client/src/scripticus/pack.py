@@ -4,7 +4,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from scripticus_schema.manifest import Manifest, load_manifest
+from scripticus_schema.manifest import FORMAT_GROUPS, Manifest, load_manifest
 
 
 class PackError(Exception):
@@ -13,11 +13,6 @@ class PackError(Exception):
 
 # Junk that must never end up inside a distributed artifact.
 EXCLUDED_NAMES = {".git", "__pycache__", ".DS_Store"}
-
-# One archive per format group: POSIX/macOS targets travel as .tar.gz,
-# Windows as .zip. A package targeting both produces one archive of each
-# (D26).
-FORMAT_GROUPS = (("tar.gz", ("linux", "macos")), ("zip", ("windows",)))
 
 
 def archive_filenames(manifest: Manifest) -> list[str]:

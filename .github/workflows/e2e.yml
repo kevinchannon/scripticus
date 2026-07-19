@@ -1,0 +1,59 @@
+name: E2E against real Gitea
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Start Gitea
+        run: |
+          docker run -d --name gitea -p 3000:3000 \
+            -e GITEA__security__INSTALL_LOCK=true \
+            gitea/gitea:1.24
+          for attempt in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/healthz > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Gitea did not become healthy"; exit 1
+
+      - name: Provision a Gitea user and token
+        id: gitea
+        run: |
+          docker exec -u git gitea gitea admin user create \
+            --username scripticus-e2e --password 'e2e-password-1' \
+            --email e2e@example.invalid --must-change-password=false
+          TOKEN=$(curl -sf -u 'scripticus-e2e:e2e-password-1' \
+            -X POST -H 'Content-Type: application/json' \
+            -d '{"name":"e2e","scopes":["write:package","read:user"]}' \
+            http://localhost:3000/api/v1/users/scripticus-e2e/tokens \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha1"])')
+          echo "::add-mask::$TOKEN"
+          echo "TOKEN=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run e2e tests
+        env:
+          SCRIPTICUS_E2E_GITEA_URL: http://localhost:3000
+          SCRIPTICUS_E2E_GITEA_TOKEN: ${{ steps.gitea.outputs.TOKEN }}
+          SCRIPTICUS_E2E_GITEA_USER: scripticus-e2e
+        run: uv run pytest -m e2e --tb=short

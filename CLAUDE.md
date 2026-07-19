@@ -20,22 +20,28 @@ replacement picker for commands other installed packages still provide, D28
 installed package, D11 — `use.py`, sharing the uninstall picker's re-point
 primitive). The contract code lives in `schema/` (`scripticus_schema`):
 the Pydantic manifest model and validation (`manifest.py`), the D3/D27
-content hash (`treehash.py`), semver ordering (`semver.py`), and the read
-API's wire models (`index_api.py`, D30). Only code meeting D29's admission
-rule (defines what a package is, or how client and server communicate) may
-go there. Client-side state goes under `~/.scripticus/`
+content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
+models for the read API (`index_api.py`, D30) and publish response
+(`publish_api.py`, D32). Only code meeting D29's admission rule (defines
+what a package is, or how client and server communicate) may go there. Client-side state goes under `~/.scripticus/`
 (override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
 FastAPI app (`app.py`) exposing `GET /health`, `GET /version`, and the
-first read endpoints — `GET /packages/{namespace}/{name}` (version
-listing) and `GET /search` — backed by the SQLAlchemy index data model
-(`db.py`, D23; tables created via `create_all` on first use, D31; DB URL
-from `SCRIPTICUS_INDEX_DB`, default a local SQLite file). The server has
+read endpoints — `GET /packages/{namespace}/{name}` (version listing)
+and `GET /search` — backed by the SQLAlchemy index data model (`db.py`,
+D23; tables created via `create_all` on first use, D31; DB URL from
+`SCRIPTICUS_INDEX_DB`, default a local SQLite file), plus the write path:
+`POST /packages` (`publish.py`, D32 — pass-through Gitea auth against
+`SCRIPTICUS_GITEA_URL`, everything derived from the uploaded archive,
+blob to Gitea before the index record commits; dependency rules per D33),
+with the Gitea boundary isolated in `gitea.py` so tests fake it
+(e2e tests against real Gitea are marked `e2e`, deselected by default,
+run by `.github/workflows/e2e.yml`). The server has
 no Typer CLI — `scripticus-svr` (`main.py`, argparse for
 `--host`/`--port`) prints a version/address banner and runs uvicorn, and
 the OpenAPI spec is served at `/openapi.json` rather than committed to
-the repo. Publish and resolution do not exist yet, so a production index
-is empty until those land. A server `Dockerfile`
-and a single-service root `docker-compose.yml` exist. The design docs below
+the repo. Resolution does not exist yet. A server `Dockerfile` exists,
+and the root `docker-compose.yml` is the two-service registry bundle
+(index service + Gitea). The design docs below
 describe the intended v1.0.0
 and remain the source of truth for architecture.
 
@@ -138,7 +144,6 @@ casually:
 - **SQLite via SQLAlchemy with no SQLite-isms** (D23), so Postgres stays a
   configuration change.
 
-Deliberately not designed yet (per ARCHITECTURE.md): the write-path
-(publish) API schema, auth token scoping for CI publishing, and the
-resolver algorithm's internals. The read-path API schemas are designed
-(D30, `scripticus_schema.index_api`).
+Deliberately not designed yet (per ARCHITECTURE.md): auth token scoping
+for CI publishing and the resolver algorithm's internals. The read- and
+write-path API schemas are designed (D30, D32).

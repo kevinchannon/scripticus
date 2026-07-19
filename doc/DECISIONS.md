@@ -720,3 +720,87 @@ a drop-and-recreate during early development.
   database until migrations arrive; acceptable only while indices are
   disposable, so this decision has an expiry date: revisit when publish
   lands.
+
+**Revisited when publish landed (D32)**: `create_all` stays. Publish
+makes populated indices *possible*, not yet *precious* — there is no
+deployment whose data would survive a reinstall today, and the index
+remains re-derivable from stored manifests (D21). Alembic arrives with
+the first persistent deployment, and in any case before v1.0.0.
+
+---
+
+## D32. Publish: pass-through Gitea auth, derived-from-archive validation, format-variant rule
+
+**Decision**: Publish is `POST /packages`, a multipart upload of one
+package archive with the caller's own Gitea token in the `Authorization`
+header. The server derives everything — identity, platforms, language,
+dependencies, commands, the content hash — from the extracted archive;
+no client-supplied claim is trusted (D8). The token is used pass-through:
+the index service authenticates the caller against Gitea, checks publish
+permission live (the namespace is the caller or an organisation the
+caller belongs to — D24), and writes the blob to Gitea's generic package
+registry as the caller, holding no credentials of its own. Order of
+operations is the atomicity guarantee: validate everything, upload the
+blob, and commit the index record only after Gitea confirms; a commit
+failure after upload triggers a best-effort blob delete. Versions are
+immutable, with one carve-out — the format-variant rule: an existing
+version accepts an additional artifact only when the uploaded tree's
+hash equals the recorded one (D3 makes "same content" checkable) and the
+archive format is not yet present, which is exactly the shape D26's
+per-format packing produces. An uploaded archive's format must match the
+manifest's declared platforms (a `.zip` carries Windows targets), the
+`library` namespace is rejected (reserved, D5), and only the response
+model (`scripticus_schema.publish_api.PublishResult`) is contract — the
+request is the archive itself.
+
+**Reason**: Pass-through auth is the smallest design that satisfies D24:
+permission truth stays in Gitea, checked live, and the index service
+cannot leak or misuse credentials it never holds. Deriving everything
+server-side removes the entire class of index-says-X-package-says-Y
+inconsistencies at the door (D21's authority rule applied to ingest).
+The blob-then-record ordering means the worst crash outcome is an
+orphaned blob in Gitea — invisible to resolution — rather than an index
+record pointing at nothing, which would break installs.
+
+**Consequences**:
+- Good: no server-held credentials, no cached ACLs, no trusted client
+  claims; the failure mode hierarchy always degrades toward "publish
+  rejected", never "index corrupted".
+- Good: multi-format packages (D26) publish naturally as two requests
+  with no coordination.
+- Bad: a CI publisher currently needs a personal Gitea token; scoped
+  publish tokens remain deliberately undesigned.
+- Bad: an orphaned blob is possible if the best-effort delete also
+  fails; harmless but needs manual cleanup in Gitea's UI.
+
+---
+
+## D33. Publish-time dependency rules: targets must exist; cycles rejected
+
+**Decision**: A declared package dependency must be a fully namespaced
+`namespace/name` reference to a package already present in the index
+with at least one version (the crates.io rule). Publish also rejects a
+version whose dependencies would make the publishing package reachable
+from itself in the package-level dependency graph (the union of every
+version's declared dependencies).
+
+**Reason**: Requiring dependencies to exist catches typos and
+unpublished-yet mistakes at the moment the author can fix them, and it
+makes forward references — the raw material of cycles — impossible to
+mint accidentally. The cycle check is at package granularity because
+that is the granularity resolution installs at (single-version-per-
+closure): a cycle at package level is unresolvable regardless of which
+versions ranges later select. Union-of-versions edges deliberately
+over-approximate — a false rejection is a clear error at publish time,
+whereas a cycle admitted into the index surfaces as a confusing
+resolution failure for some innocent user later.
+
+**Consequences**:
+- Good: the resolver can assume an acyclic package graph.
+- Good: dangling dependency references cannot enter the index.
+- Bad: publishing mutually-referencing packages for the first time
+  requires an order (publish the dependency-free one first) — same as
+  crates.io, and inherent to the no-forward-references rule.
+- Bad: the union-graph over-approximation can reject a publish whose
+  actual version-level ranges would have been satisfiable; accepted as
+  the safer failure direction.
