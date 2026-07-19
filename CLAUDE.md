@@ -12,10 +12,12 @@ are Typer + Rich CLIs. The client implements `-v`/`--version`, `new`
 (scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`), and
 `install -f` (local install: extraction, transaction flow, shims, lockfile —
 `install.py`; a package declaring package dependencies is rejected by a
-resolver stub until remote install brings real resolution), and `uninstall`
+resolver stub until remote install brings real resolution), `uninstall`
 (lockfile-driven removal of a package's files and owned shims, with a
 replacement picker for commands other installed packages still provide, D28
-— `uninstall.py`). Manifest
+— `uninstall.py`), and `use` (manually re-point a command shim at an
+installed package, D11 — `use.py`, sharing the uninstall picker's re-point
+primitive). Manifest
 validation shared by pack/install lives in
 `manifest.py` (the seed of the future `shared/` schema package); the D3/D27
 content hash in `treehash.py`. Client-side state goes under `~/.scripticus/`

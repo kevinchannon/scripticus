@@ -25,6 +25,7 @@ from scripticus.uninstall import (
     find_replacements,
     install_replacement,
 )
+from scripticus.use import UseError, prepare_use
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -340,3 +341,46 @@ def _prompt_replacement(
     candidate = candidates[choice - 1]
     install_replacement(candidate, command, lock, home)
     console.print(f"'{command}' now points at {candidate.package_id} {candidate.version}")
+
+
+@app.command()
+def use(
+    package: str = typer.Argument(
+        ...,
+        help="Installed package to point the command at, as 'name' or 'namespace/name'.",
+    ),
+    command: str = typer.Argument(
+        ...,
+        help="The command whose shim to re-point.",
+    ),
+) -> None:
+    """Point a command's shim at a specific installed package."""
+    home = scripticus_home()
+    lock = read_lockfile(home)
+
+    try:
+        candidate, owner = prepare_use(package, command, lock, home)
+    except UseError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if (
+        owner is not None
+        and (owner["namespace"], owner["name"]) == (candidate.namespace, candidate.name)
+    ):
+        console.print(
+            f"'{command}' already points at {candidate.package_id} {candidate.version}"
+            " — nothing to do"
+        )
+        return
+
+    install_replacement(candidate, command, lock, home)
+    was = (
+        f" (was {owner['namespace']}/{owner['name']} {owner['version']})"
+        if owner is not None
+        else " (previously had no shim)"
+    )
+    console.print(
+        f"'{command}' now points at [bold]{candidate.package_id}[/bold]"
+        f" {candidate.version}{was}"
+    )

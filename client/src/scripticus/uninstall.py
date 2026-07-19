@@ -98,9 +98,10 @@ def find_replacements(
 
 
 def install_replacement(candidate: Candidate, command: str, lock: dict, home: Path) -> None:
-    """Point ``command``'s shim at ``candidate`` and record the ownership.
+    """Point ``command``'s shim at ``candidate`` and record the ownership,
+    taking it away from any current owner.
 
-    This is the re-point primitive `scripticus use` will share.
+    This is the re-point primitive shared with `scripticus use`.
     """
     bin_dir = home / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +109,9 @@ def install_replacement(candidate: Candidate, command: str, lock: dict, home: Pa
     _write_shim(bin_dir, command, script, candidate.language)
 
     entry = _find_entry(lock, candidate.namespace, candidate.name)
+    for other in lock["packages"]:
+        if other is not entry and command in other["commands"]:
+            other["commands"].remove(command)
     if entry is not None and command not in entry["commands"]:
         entry["commands"] = sorted([*entry["commands"], command])
     write_lockfile(home, lock)
