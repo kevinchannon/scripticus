@@ -60,7 +60,10 @@ class GiteaClient:
         response = self._get(f"/api/v1/orgs/{namespace}/members/{user}")
         if response.status_code == 204:
             return True
-        if response.status_code in (302, 404):
+        if response.status_code < 500:
+            # Non-membership, nonexistent org, and permission refusals all
+            # come back as assorted 3xx/4xx depending on Gitea version; every
+            # one of them means "cannot publish here".
             return False
         raise GiteaError(f"unexpected {response.status_code} from Gitea org check")
 
