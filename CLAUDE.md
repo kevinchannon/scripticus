@@ -9,7 +9,7 @@ with three members: `client/` (PyPI package `scripticus`, the CLI),
 `server/` (PyPI package `scripticus-server`, providing the `scripticus-svr`
 command; will become the FastAPI index service fronting Gitea per D13), and
 `schema/` (PyPI package `scripticus-schema`, the shared client/server
-contract, D29). Client and server are Typer + Rich CLIs. The client implements `-v`/`--version`, `new`
+contract, D29). The client is a Typer + Rich CLI. It implements `-v`/`--version`, `new`
 (scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`), and
 `install -f` (local install: extraction, transaction flow, shims, lockfile —
 `install.py`; a package declaring package dependencies is rejected by a
@@ -23,8 +23,13 @@ the Pydantic manifest model and validation (`manifest.py`), the D3/D27
 content hash (`treehash.py`), and semver ordering (`semver.py`). Only code
 meeting D29's admission rule (defines what a package is, or how client and
 server communicate) may go there. Client-side state goes under `~/.scripticus/`
-(override with `SCRIPTICUS_HOME`, which tests rely on). The server only
-implements `-v`/`--version` so far. The design docs below describe the intended v1.0.0
+(override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
+FastAPI app (`app.py`) exposing `GET /health` so far; it has no Typer CLI —
+`scripticus-svr` (`main.py`, argparse for `--host`/`--port`) prints a
+version/address banner and runs uvicorn, and the OpenAPI spec is served at
+`/openapi.json` rather than committed to the repo. A server `Dockerfile`
+and a single-service root `docker-compose.yml` exist. The design docs below
+describe the intended v1.0.0
 and remain the source of truth for architecture.
 
 ## Commands
@@ -37,7 +42,7 @@ $ uv run pytest                    # run all tests
 $ uv run pytest client/tests/test_cli.py::test_bare_invocation_shows_help
                                    # run a single test
 $ uv run scripticus -v             # run the client CLI
-$ uv run scripticus-svr -v         # run the server CLI
+$ uv run scripticus-svr            # start the index service (Ctrl-C to stop)
 $ uv build --package scripticus    # build the client wheel/sdist into dist/
 $ uv build --package scripticus-server
 ```

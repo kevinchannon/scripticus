@@ -2,6 +2,6 @@
 members = ["client", "schema", "server"]
 
 [tool.pytest.ini_options]
-# Both members have a tests/test_cli.py; importlib mode lets same-named
-# test modules coexist without per-directory __init__.py files.
+# importlib mode lets same-named test modules in different members coexist
+# without per-directory __init__.py files.
 addopts = "--import-mode=importlib"

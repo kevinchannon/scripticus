@@ -34,19 +34,19 @@ The design documents live in [doc/](doc/): [vision](doc/VISION.md),
 ## Developing
 
 The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
-with two members, `client/` and `server/`. All commands run from the
-repository root:
+with three members, `client/`, `schema/`, and `server/`. All commands run
+from the repository root:
 
 ```console
 $ uv sync                             # create/update the workspace environment
-$ uv run pytest                       # run all tests (both members)
+$ uv run pytest                       # run all tests (all members)
 $ uv run scripticus -v                # run the client CLI
-$ uv run scripticus-svr -v            # run the server CLI
+$ uv run scripticus-svr               # start the index service (Ctrl-C to stop)
 $ uv build --package scripticus      # build the client wheel/sdist into dist/
 $ uv build --package scripticus-server
 ```
 
-Both members share a single lockfile (`uv.lock`) and virtual environment.
+All members share a single lockfile (`uv.lock`) and virtual environment.
 
 ## Licence
 
