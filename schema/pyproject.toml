@@ -1,0 +1,19 @@
+[project]
+name = "scripticus-schema"
+version = "0.1.0"
+description = "A package manager and registry for scripts — shared contract: manifest schema, identity, versioning"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pydantic>=2.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

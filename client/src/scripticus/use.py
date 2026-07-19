@@ -7,7 +7,7 @@ through the same re-point primitive, ``install_replacement``.
 
 from pathlib import Path
 
-from scripticus.manifest import ManifestError, commands_of, load_manifest
+from scripticus_schema.manifest import ManifestError, commands_of, load_manifest
 from scripticus.uninstall import Candidate, UninstallError, find_installed
 
 
@@ -49,7 +49,7 @@ def prepare_use(
         namespace=entry["namespace"],
         name=entry["name"],
         version=entry["version"],
-        language=manifest["package"]["language"],
+        language=manifest.package.language,
         script=commands[command],
     )
     return candidate, owner

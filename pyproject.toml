@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["client", "server"]
+members = ["client", "schema", "server"]
 
 [tool.pytest.ini_options]
 # Both members have a tests/test_cli.py; importlib mode lets same-named

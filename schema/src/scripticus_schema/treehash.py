@@ -7,6 +7,10 @@ encoding is injective — a crafted file name cannot forge record structure,
 so distinct trees cannot hash identically (D27). File modes are deliberately
 excluded — zip extraction drops the executable bit, and the same content
 must hash identically whichever archive container it travelled in (D26).
+
+The client verifies this hash after download; the index verifies it at
+publish. Both sides use this module, so the implementations cannot diverge
+(D29).
 """
 
 import hashlib

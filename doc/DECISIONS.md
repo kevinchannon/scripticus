@@ -622,3 +622,39 @@ completed uninstall and cannot create partial state.
 - Good: the re-point primitive is shared with the future `use` command.
 - Bad: uninstall now reads every other installed package's manifest — fine
   at CLI scale, and a damaged tree is skipped rather than blocking removal.
+
+---
+
+## D29. Cross-cutting code ships as `scripticus-schema`, scoped to the contract
+
+**Decision**: Code needed on both sides lives in a third workspace member,
+`schema/`, published to PyPI as `scripticus-schema`. Its contents are the
+contract and nothing else: the Pydantic manifest schema and validation
+(D13), the package/namespace naming rules and language table, strict-semver
+parsing and ordering (D16), the D3/D27 tree-hash implementation, and — once
+the API is designed — the wire-format models. Admission rule: **code goes
+in `schema/` only if it defines what a package is or how client and server
+communicate.** Anything convenience-shaped ("both sides could use it")
+stays out. Client and server declare it as a normal dependency with tight
+same-minor version bounds, resolved from the workspace during development
+(`[tool.uv.sources] … workspace = true`).
+
+**Reason**: D13's deciding argument for one language was one shared
+manifest schema; D27 requires the client and server tree-hash
+implementations to be bit-identical — sharing the module makes that true by
+construction instead of by discipline. The name is deliberately narrow:
+built wheels do not vendor workspace members, so every module in this
+package ships as a third published PyPI artifact whose changes force
+coordinated three-package releases. A grab-bag name (`shared/`, `common/`)
+advertises for exactly the convenience code that would inflate that
+coupling; `schema` states the admission rule in the directory listing.
+
+**Consequences**:
+- Good: manifest, identity, and version-ordering rules cannot drift between
+  client and server.
+- Good: the admission rule keeps the package — and the release coupling —
+  small.
+- Bad: a third PyPI package to publish, and ordering matters: a client or
+  server release that bumps the schema dependency requires the schema
+  release to be on the index first.
+- Bad: a schema change fans out to up to three coordinated version bumps.

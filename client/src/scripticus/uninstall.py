@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scripticus.install import _find_entry, _shim_path, _write_shim, write_lockfile
-from scripticus.manifest import ManifestError, commands_of, load_manifest
+from scripticus_schema.manifest import ManifestError, commands_of, load_manifest
 
 
 class UninstallError(Exception):
@@ -90,7 +90,7 @@ def find_replacements(
                         namespace=entry["namespace"],
                         name=entry["name"],
                         version=entry["version"],
-                        language=manifest["package"]["language"],
+                        language=manifest.package.language,
                         script=script,
                     )
                 )

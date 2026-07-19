@@ -4,7 +4,7 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from scripticus.manifest import load_manifest
+from scripticus_schema.manifest import Manifest, load_manifest
 
 
 class PackError(Exception):
@@ -20,7 +20,7 @@ EXCLUDED_NAMES = {".git", "__pycache__", ".DS_Store"}
 FORMAT_GROUPS = (("tar.gz", ("linux", "macos")), ("zip", ("windows",)))
 
 
-def archive_filenames(manifest: dict) -> list[str]:
+def archive_filenames(manifest: Manifest) -> list[str]:
     """Wheel-style structured tags: name-version-platforms-language.<ext>.
 
     Dashes within name/version are normalised to underscores so the dash is
@@ -29,17 +29,17 @@ def archive_filenames(manifest: dict) -> list[str]:
     the package targets. The filename is human-legible redundancy only — the
     manifest inside the archive is the source of truth.
     """
-    package = manifest["package"]
-    name = package["name"].replace("-", "_")
-    version = package["version"].replace("-", "_")
-    os_list = manifest["platforms"]["os"]
+    package = manifest.package
+    name = package.name.replace("-", "_")
+    version = package.version.replace("-", "_")
+    os_list = manifest.platforms.os
     filenames = []
     for extension, group in FORMAT_GROUPS:
         targets = [os_name for os_name in group if os_name in os_list]
         if targets:
             platform_tag = ".".join(targets)
             filenames.append(
-                f"{name}-{version}-{platform_tag}-{package['language']}.{extension}"
+                f"{name}-{version}-{platform_tag}-{package.language}.{extension}"
             )
     return filenames
 
@@ -60,7 +60,7 @@ def pack_package(package_dir: Path, output_dir: Path) -> list[Path]:
     regardless of the directory's on-disk name.
     """
     manifest = load_manifest(package_dir)
-    root = manifest["package"]["name"]
+    root = manifest.package.name
 
     # Control characters in file names are never intentional in a script
     # package, and archive tools disagree on how to represent them (D27).

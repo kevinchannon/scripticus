@@ -22,8 +22,9 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from scripticus.manifest import LANGUAGES, commands_of, load_manifest
-from scripticus.treehash import tree_hash
+from scripticus_schema.manifest import LANGUAGES, Manifest, commands_of, load_manifest
+from scripticus_schema.semver import semver_key
+from scripticus_schema.treehash import tree_hash
 
 
 class InstallError(Exception):
@@ -68,23 +69,6 @@ def _find_entry(lock: dict, namespace: str, name: str) -> dict | None:
     return None
 
 
-# --- Version comparison ---------------------------------------------------
-
-
-def _semver_key(version: str):
-    core = version.partition("+")[0]
-    numbers, _, prerelease = core.partition("-")
-    major, minor, patch = (int(part) for part in numbers.split("."))
-    if not prerelease:
-        # A release sorts after every prerelease of the same version.
-        return (major, minor, patch, 1, ())
-    identifiers = tuple(
-        (0, int(ident), "") if ident.isdigit() else (1, 0, ident)
-        for ident in prerelease.split(".")
-    )
-    return (major, minor, patch, 0, identifiers)
-
-
 # --- Transaction preparation ----------------------------------------------
 
 
@@ -122,7 +106,7 @@ class Transaction:
     source: Path
     staging: Path  # temp dir owning package_root; caller must clean up
     package_root: Path  # the extracted package tree
-    manifest: dict
+    manifest: Manifest
     content_hash: str
     action: str  # install | upgrade | downgrade | reinstall | already-installed
     installed_version: str | None
@@ -133,12 +117,12 @@ class Transaction:
 
     @property
     def package_id(self) -> str:
-        package = self.manifest["package"]
-        return f"{package['namespace']}/{package['name']}"
+        package = self.manifest.package
+        return f"{package.namespace}/{package.name}"
 
     @property
     def version(self) -> str:
-        return self.manifest["package"]["version"]
+        return self.manifest.package.version
 
 
 def _extract_archive(archive: Path, destination: Path) -> Path:
@@ -170,7 +154,7 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
         package_root = _extract_archive(archive, staging)
         manifest = load_manifest(package_root)  # raises ManifestError
 
-        os_list = manifest["platforms"]["os"]
+        os_list = manifest.platforms.os
         machine = current_os()
         if machine not in os_list:
             supported = ", ".join(os_list)
@@ -178,26 +162,26 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
                 f"package supports [{supported}] but this machine is {machine}"
             )
 
-        resolve_dependencies(dict(manifest.get("dependencies", {}).get("packages", {})))
+        resolve_dependencies(dict(manifest.dependencies.packages))
 
-        package = manifest["package"]
+        package = manifest.package
         lock = read_lockfile(home)
-        entry = _find_entry(lock, package["namespace"], package["name"])
+        entry = _find_entry(lock, package.namespace, package.name)
         installed_version = entry["version"] if entry else None
 
         if entry is None:
             action = "install"
-        elif entry["version"] == package["version"]:
+        elif entry["version"] == package.version:
             content_hash = tree_hash(package_root)
             action = "already-installed" if entry["content_hash"] == content_hash else "reinstall"
-        elif _semver_key(package["version"]) > _semver_key(entry["version"]):
+        elif semver_key(package.version) > semver_key(entry["version"]):
             action = "upgrade"
         else:
             action = "downgrade"
 
-        tools = manifest.get("dependencies", {}).get("tools", {})
-        required_tools = [Tool(t, shutil.which(t) is not None) for t in tools.get("requires", [])]
-        optional_tools = [Tool(t, shutil.which(t) is not None) for t in tools.get("optional", [])]
+        tools = manifest.dependencies.tools
+        required_tools = [Tool(t, shutil.which(t) is not None) for t in tools.requires]
+        optional_tools = [Tool(t, shutil.which(t) is not None) for t in tools.optional]
 
         commands = commands_of(manifest)
         conflicts = []
@@ -247,8 +231,8 @@ def _write_shim(bin_dir: Path, command: str, script: Path, language: str) -> Non
 
 def apply_install(transaction: Transaction, home: Path) -> None:
     """Install the staged package tree: files, shims, lockfile."""
-    package = transaction.manifest["package"]
-    namespace, name, version = package["namespace"], package["name"], package["version"]
+    package = transaction.manifest.package
+    namespace, name, version = package.namespace, package.name, package.version
 
     bin_dir = home / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +256,7 @@ def apply_install(transaction: Transaction, home: Path) -> None:
         lock["packages"].remove(previous)
 
     for command, script in transaction.commands.items():
-        _write_shim(bin_dir, command, install_dir / script, package["language"])
+        _write_shim(bin_dir, command, install_dir / script, package.language)
 
     # Shims are last-install-wins (D11): any conflicting command now belongs
     # to this package, so drop it from the previous owner's ownership list.
@@ -285,7 +269,7 @@ def apply_install(transaction: Transaction, home: Path) -> None:
             "namespace": namespace,
             "name": name,
             "version": version,
-            "language": package["language"],
+            "language": package.language,
             "content_hash": transaction.content_hash,
             "commands": sorted(transaction.commands),
             "direct": True,

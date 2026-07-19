@@ -5,6 +5,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from scripticus import __version__, scaffold
 from scripticus.install import (
@@ -15,7 +16,7 @@ from scripticus.install import (
     read_lockfile,
     scripticus_home,
 )
-from scripticus.manifest import ManifestError
+from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
 from scripticus.uninstall import (
     Candidate,
@@ -101,7 +102,7 @@ def new(
     try:
         created = scaffold.scaffold_package(language, name, namespace, cwd)
     except scaffold.ScaffoldError as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     console.print(f"Created package [bold]{name}[/bold]:")
@@ -130,7 +131,7 @@ def pack(
     try:
         archive_paths = pack_package(package_dir, output)
     except (ManifestError, PackError) as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     console.print(f"Packed [bold]{package_dir.name}[/bold]:")
@@ -217,7 +218,7 @@ def install(
     try:
         transaction = prepare_install(file, home)
     except (InstallError, ManifestError) as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     try:
@@ -273,7 +274,7 @@ def uninstall(
     try:
         entry = find_installed(package, lock)
     except UninstallError as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     replacements = find_replacements(entry, lock, home)
@@ -361,7 +362,7 @@ def use(
     try:
         candidate, owner = prepare_use(package, command, lock, home)
     except UseError as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
 
     if (

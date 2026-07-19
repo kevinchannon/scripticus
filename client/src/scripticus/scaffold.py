@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripticus.manifest import (  # noqa: F401  (re-exported for cli validation)
+from scripticus_schema.manifest import (  # noqa: F401  (re-exported for cli validation)
     LANGUAGES,
     NAMESPACE_RE,
     PACKAGE_NAME_RE,
