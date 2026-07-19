@@ -9,8 +9,10 @@ on:
 
 jobs:
   validate-installation:
-    # Only run if the release workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only client releases are validated: a schema release publishes a
+    # library with no entry point to smoke-test — it gets exercised by the
+    # next client/server release that pulls it in.
+    if: ${{ (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'client-v')) || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -46,7 +48,7 @@ jobs:
         env:
           RELEASED_TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
-          VERSION="${RELEASED_TAG#v}"
+          VERSION="${RELEASED_TAG#client-v}"
           if [ -z "$VERSION" ]; then
             # Manual dispatch: no released tag to pin to, just install the latest
             python -m pipx install scripticus
@@ -76,8 +78,8 @@ jobs:
         run: echo "✓ scripticus successfully installed via pipx on ${{ matrix.platform }}"
 
   validate-centos:
-    # Only run if the release workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only client releases are validated (see validate-installation)
+    if: ${{ (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'client-v')) || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     container:
       image: quay.io/centos/centos:stream9
@@ -104,7 +106,7 @@ jobs:
         env:
           RELEASED_TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
-          VERSION="${RELEASED_TAG#v}"
+          VERSION="${RELEASED_TAG#client-v}"
           if [ -z "$VERSION" ]; then
             # Manual dispatch: no released tag to pin to, just install the latest
             pipx install --python python3.12 scripticus

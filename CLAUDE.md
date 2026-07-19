@@ -42,6 +42,17 @@ $ uv build --package scripticus    # build the client wheel/sdist into dist/
 $ uv build --package scripticus-server
 ```
 
+## Releasing
+
+Releases are tag-driven, one tag per package: pushing `client-vX.Y.Z`
+releases `scripticus` to PyPI, `schema-vX.Y.Z` releases `scripticus-schema`
+(`.github/workflows/release.yml` — one independent run per pushed tag, so
+tagging several packages at once is fine). The tag's version is stamped
+into the member's `pyproject.toml` at build time. A client release waits
+for a PyPI `scripticus-schema` satisfying the client's pin before
+publishing (D29); the pipx-install validation runs only for `client-v*`
+releases.
+
 ## Code layout
 
 - Workspace root [pyproject.toml](pyproject.toml) is virtual (no `[project]`
