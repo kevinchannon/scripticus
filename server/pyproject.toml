@@ -6,16 +6,17 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-    "typer>=0.16",
-    "rich>=13",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
-scripticus-svr = "scripticus_server.cli:app"
+scripticus-svr = "scripticus_server.main:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "httpx2>=0.1",
 ]
 
 [build-system]

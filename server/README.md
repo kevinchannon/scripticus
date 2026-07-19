@@ -6,21 +6,46 @@ manifest-aware search, version and dependency resolution, and the publish
 path for a Scripticus registry. Installing this package provides the
 `scripticus-svr` command.
 
-## Standing up a server
+## Running the server
 
-The server is a Docker Compose bundle containing the Scripticus index service
-and a Gitea instance that provides storage, authentication, and namespace
-ownership:
+`scripticus-svr` starts the service, printing its version and address on
+start-up:
 
 ```console
-$ curl -LO https://example.com/scripticus/docker-compose.yml
-$ docker compose up -d
+$ scripticus-svr --host 0.0.0.0 --port 8000
+scripticus-svr 0.1.0 — serving on http://0.0.0.0:8000 (interactive API docs at http://0.0.0.0:8000/docs)
 ```
 
-Accounts and organisations are managed in Gitea; a Scripticus namespace is a
-Gitea user or organisation, claimed first-come-first-served, and publish
-rights follow Gitea's own membership and ACLs. The `library` namespace is
-reserved.
+Both options are optional; the default is `127.0.0.1:8000`. The API is
+self-describing: interactive docs are served at `/docs` and the OpenAPI
+spec at `/openapi.json`.
+
+### Health check
+
+`GET /health` returns `200` with `{"status": "ok"}` while the service is
+up. It is deliberately unauthenticated — it's a liveness probe for load
+balancers and container orchestrators.
+
+### Docker
+
+The repository ships a `docker-compose.yml` running the index service as a
+single container:
+
+```console
+$ docker compose up -d
+$ curl http://localhost:8000/health
+{"status":"ok"}
+```
+
+The intended v1 deployment pairs the index service with a Gitea instance
+that provides storage, authentication, and namespace ownership; Gitea
+integration doesn't exist yet, so the compose file is currently
+server-only and does not stand up a working registry.
+
+Once Gitea is part of the bundle: accounts and organisations are managed
+in Gitea; a Scripticus namespace is a Gitea user or organisation, claimed
+first-come-first-served, and publish rights follow Gitea's own membership
+and ACLs. The `library` namespace is reserved.
 
 ## Licence
 

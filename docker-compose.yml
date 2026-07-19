@@ -1,0 +1,10 @@
+# Server-only for now: the intended deployment (ARCHITECTURE.md) pairs the
+# index service with a Gitea instance, but Gitea integration doesn't exist
+# yet, so this compose file makes no pretence of a working registry.
+services:
+  index:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "8000:8000"

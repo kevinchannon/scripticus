@@ -9,6 +9,7 @@ on:
       # matches the workspace directory of the package it releases.
       - 'client-v*.*.*'
       - 'schema-v*.*.*'
+      - 'server-v*.*.*'
 
 jobs:
   release:
@@ -39,6 +40,7 @@ jobs:
           case "$COMPONENT" in
             client) PACKAGE=scripticus ;;
             schema) PACKAGE=scripticus-schema ;;
+            server) PACKAGE=scripticus-server ;;
             *) echo "::error::unrecognised release tag '$GITHUB_REF_NAME'"; exit 1 ;;
           esac
           {
@@ -93,7 +95,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           # Uses trusted publisher authentication (no API token needed).
-          # Every released PyPI project (scripticus, scripticus-schema) must
-          # trust this workflow file:
+          # Every released PyPI project (scripticus, scripticus-schema,
+          # scripticus-server) must trust this workflow file:
           # https://pypi.org/manage/account/publishing/
           packages-dir: dist/

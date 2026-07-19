@@ -38,10 +38,7 @@ jobs:
     - name: Test client CLI help
       run: uv run scripticus --help
 
-    - name: Test server CLI version command
-      run: uv run scripticus-svr --version
-
-    - name: Test server CLI help
+    - name: Test server entrypoint help
       run: uv run scripticus-svr --help
 
   lint:
