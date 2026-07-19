@@ -67,10 +67,18 @@ jobs:
           ls -lh dist/
 
       - name: Wait for the schema dependency to be installable
-        if: steps.parse.outputs.COMPONENT == 'client'
+        # Any component that pins scripticus-schema (client and server, not
+        # schema itself) must not be published before a satisfying schema
+        # release exists on PyPI (D29).
+        if: steps.parse.outputs.COMPONENT != 'schema'
         run: |
-          REQ=$(grep -o '"scripticus-schema[^"]*"' client/pyproject.toml | tr -d '"')
-          echo "Client requires: $REQ"
+          REQ=$(grep -o '"scripticus-schema[^"]*"' \
+            '${{ steps.parse.outputs.COMPONENT }}/pyproject.toml' | tr -d '"')
+          if [ -z "$REQ" ]; then
+            echo "${{ steps.parse.outputs.COMPONENT }} has no scripticus-schema pin; nothing to wait for"
+            exit 0
+          fi
+          echo "${{ steps.parse.outputs.COMPONENT }} requires: $REQ"
           # If the matching schema tag was pushed moments ago, its release
           # run may still be in flight; wait for the dependency rather than
           # publishing a client release that cannot be installed (D29).

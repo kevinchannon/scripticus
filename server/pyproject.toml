@@ -8,7 +8,12 @@ license = "MIT"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    "sqlalchemy>=2.0",
+    "scripticus-schema>=0.1.1,<0.2.0",
 ]
+
+[tool.uv.sources]
+scripticus-schema = { workspace = true }
 
 [project.scripts]
 scripticus-svr = "scripticus_server.main:main"

@@ -31,6 +31,23 @@ balancers and container orchestrators.
 `GET /version` returns the running server's version, e.g.
 `{"version": "0.1.1"}`.
 
+### Package index (read API)
+
+- `GET /packages/{namespace}/{name}` — a package's version listing, newest
+  first by semver precedence. Yanked versions are included and marked
+  (`"yanked": true`) so pinned lookups can still see them; unknown packages
+  return `404`.
+- `GET /search?q=<substring>&platform=<os>&language=<lang>` — packages whose
+  name contains `q` (all parameters optional), with each result's latest
+  non-yanked version. Yanked versions are invisible to search; `platform`
+  and `language` filter on the artifacts a version actually provides.
+
+The index database defaults to a local SQLite file
+(`scripticus-index.db`); set `SCRIPTICUS_INDEX_DB` to any SQLAlchemy URL
+to point elsewhere. Tables are created automatically on first use. Note
+that publishing doesn't exist yet, so a fresh index is empty until it
+lands.
+
 ### Docker
 
 Server releases publish a Docker image to

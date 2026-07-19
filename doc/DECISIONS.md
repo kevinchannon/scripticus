@@ -658,3 +658,65 @@ coupling; `schema` states the admission rule in the directory listing.
   server release that bumps the schema dependency requires the schema
   release to be on the index first.
 - Bad: a schema change fans out to up to three coordinated version bumps.
+
+---
+
+## D30. The read API's wire models are the first pinned-down API schemas
+
+**Decision**: The index service's read endpoints —
+`GET /packages/{namespace}/{name}` (version listing) and `GET /search`
+(name substring plus optional platform/language filters) — are the first
+part of the client/server API to have designed schemas. Their response
+models (`VersionSummary`, `PackageVersions`, `PackageSummary`,
+`SearchResults`) live in `scripticus_schema.index_api`, per D29's
+admission rule. The models encode the read-path contract itself: version
+listings are ordered newest-first by semver precedence (D16) and include
+yanked versions marked as such; search results exclude yanked versions
+entirely — a package's `latest_version` is its latest non-yanked version,
+and a package with every version yanked does not appear (npm-style yank).
+
+**Reason**: D29 anticipated wire-format models "once the API is designed";
+the read path is designed first because search and version listing have
+the simplest contract and no write-side entanglements (auth, atomicity,
+Gitea) — pinning them down forces the index data model into existence
+without blocking on publish design. Putting the ordering and yank
+semantics in the schema package rather than leaving them as server
+behaviour makes them contract, not implementation detail: a client may
+rely on `versions[0]` being the newest, and on search never surfacing
+yanked versions.
+
+**Consequences**:
+- Good: the publish and resolve stories build against an existing data
+  model and an established pattern for where API shapes live.
+- Good: yank visibility rules are written down once, in the contract.
+- Bad: the server now depends on `scripticus-schema`, so D29's release
+  ordering (schema first) applies to server releases too — the release
+  workflow's schema-availability gate must cover the server, and the first
+  server release carrying this feature needs a new schema release on PyPI
+  before it.
+- Bad: request/response shapes for publish and resolution remain
+  undesigned; this decision deliberately does not constrain them.
+
+---
+
+## D31. Index tables via `create_all` until the schema has released consumers
+
+**Decision**: The server creates its tables with SQLAlchemy's
+`create_all` (idempotent, run on first database use). No migration tool
+is adopted yet. Alembic (or equivalent) is adopted at the point a schema
+change would strand data someone cares about — in practice, once publish
+exists and real indices are populated.
+
+**Reason**: Before publish exists, every index database is empty or
+seeded test data; a migration history for tables nobody has populated is
+ceremony without users, and it would slow the data model's most
+change-heavy period. The index is also re-derivable in principle (D21:
+everything is a projection of stored manifests), which lowers the cost of
+a drop-and-recreate during early development.
+
+**Consequences**:
+- Good: the data model can evolve freely while it is young.
+- Bad: a deployment that outlives a schema change must recreate its
+  database until migrations arrive; acceptable only while indices are
+  disposable, so this decision has an expiry date: revisit when publish
+  lands.

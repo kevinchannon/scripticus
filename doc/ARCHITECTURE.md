@@ -2,9 +2,10 @@
 
 This document describes the intended v1.0.0 architecture at the level of
 components, responsibilities, data flows, and the shape of the index
-service's data model. Finer-grained details (API schemas, exact table
-definitions, resolver algorithm specifics) are deliberately not pinned down
-yet.
+service's data model. Finer-grained details (write-path API schemas,
+resolver algorithm specifics) are deliberately not pinned down yet; the
+read path's API schemas are designed (D30) and live in
+`scripticus_schema.index_api`.
 
 ## Overview
 
@@ -231,5 +232,6 @@ additive, not a rework:
   default remotes/search path), not an identity or storage change.
 - The reserved `library` namespace is the future home of curated packages.
 
-Deliberately not designed yet: API schemas, auth token scoping for CI
-publishing, and the resolver algorithm's internals.
+Deliberately not designed yet: the write-path (publish) API schema, auth
+token scoping for CI publishing, and the resolver algorithm's internals.
+The read-path API schemas are designed (D30).
