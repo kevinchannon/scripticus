@@ -28,10 +28,14 @@ balancers and container orchestrators.
 
 ### Docker
 
-The repository ships a `docker-compose.yml` running the index service as a
-single container:
+Server releases publish a Docker image to
+[`kevinchannon/scripticus-server`](https://hub.docker.com/r/kevinchannon/scripticus-server)
+(tagged with the release version and `latest`). The repository ships a
+`docker-compose.yml` running it as a single container — no checkout
+needed:
 
 ```console
+$ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
 $ docker compose up -d
 $ curl http://localhost:8000/health
 {"status":"ok"}

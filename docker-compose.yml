@@ -1,10 +1,12 @@
 # Server-only for now: the intended deployment (ARCHITECTURE.md) pairs the
 # index service with a Gitea instance, but Gitea integration doesn't exist
 # yet, so this compose file makes no pretence of a working registry.
+#
+# The image is published by the release workflow on server-v* tags. To run
+# unreleased local changes instead, build from source:
+#   docker build -f server/Dockerfile -t kevinchannon/scripticus-server .
 services:
   index:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
+    image: kevinchannon/scripticus-server:latest
     ports:
       - "8000:8000"

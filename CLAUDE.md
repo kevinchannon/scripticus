@@ -56,7 +56,10 @@ tagging several packages at once is fine). The tag's version is stamped
 into the member's `pyproject.toml` at build time. A client release waits
 for a PyPI `scripticus-schema` satisfying the client's pin before
 publishing (D29); the pipx-install validation runs only for `client-v*`
-releases.
+releases. A `server-v*` tag additionally pushes a Docker image to
+`kevinchannon/scripticus-server` (version + `latest` tags) after the PyPI
+publish succeeds; this needs the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
+repo secrets.
 
 ## Code layout
 

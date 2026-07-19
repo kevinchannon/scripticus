@@ -17,6 +17,8 @@ jobs:
     permissions:
       contents: write  # For creating GitHub release
       id-token: write  # For trusted publishing to PyPI
+    outputs:
+      VERSION: ${{ steps.parse.outputs.VERSION }}
 
     steps:
       - name: Checkout code
@@ -99,3 +101,42 @@ jobs:
           # scripticus-server) must trust this workflow file:
           # https://pypi.org/manage/account/publishing/
           packages-dir: dist/
+
+  docker-image:
+    # Server releases also publish a Docker image. Runs only after the PyPI
+    # release succeeds, so the two artifacts of a server tag can't diverge.
+    needs: release
+    if: startsWith(github.ref_name, 'server-v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Stamp release version into server/pyproject.toml
+        # The image builds from workspace source, so it needs the same
+        # version stamping the release job applied to its own checkout.
+        run: |
+          sed -i 's/^version = ".*"/version = "${{ needs.release.outputs.VERSION }}"/' \
+            server/pyproject.toml
+          grep '^version' server/pyproject.toml
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            kevinchannon/scripticus-server:${{ needs.release.outputs.VERSION }}
+            kevinchannon/scripticus-server:latest
