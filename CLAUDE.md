@@ -24,7 +24,7 @@ content hash (`treehash.py`), and semver ordering (`semver.py`). Only code
 meeting D29's admission rule (defines what a package is, or how client and
 server communicate) may go there. Client-side state goes under `~/.scripticus/`
 (override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
-FastAPI app (`app.py`) exposing `GET /health` so far; it has no Typer CLI —
+FastAPI app (`app.py`) exposing `GET /health` and `GET /version` so far; it has no Typer CLI —
 `scripticus-svr` (`main.py`, argparse for `--host`/`--port`) prints a
 version/address banner and runs uvicorn, and the OpenAPI spec is served at
 `/openapi.json` rather than committed to the repo. A server `Dockerfile`

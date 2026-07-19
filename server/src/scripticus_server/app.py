@@ -27,3 +27,12 @@ class HealthStatus(BaseModel):
 @app.get("/health")
 def health() -> HealthStatus:
     return HealthStatus()
+
+
+class VersionInfo(BaseModel):
+    version: str
+
+
+@app.get("/version")
+def version() -> VersionInfo:
+    return VersionInfo(version=__version__)

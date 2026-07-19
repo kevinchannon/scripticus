@@ -26,6 +26,11 @@ spec at `/openapi.json`.
 up. It is deliberately unauthenticated — it's a liveness probe for load
 balancers and container orchestrators.
 
+### Version
+
+`GET /version` returns the running server's version, e.g.
+`{"version": "0.1.1"}`.
+
 ### Docker
 
 Server releases publish a Docker image to
