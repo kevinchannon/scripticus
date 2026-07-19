@@ -329,7 +329,7 @@ wheels = [
 
 [[package]]
 name = "scripticus"
-version = "0.1.0"
+version = "0.0.0.dev0"
 source = { editable = "client" }
 dependencies = [
     { name = "rich" },
@@ -354,7 +354,7 @@ dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "scripticus-schema"
-version = "0.1.0"
+version = "0.0.0.dev0"
 source = { editable = "schema" }
 dependencies = [
     { name = "pydantic" },
@@ -373,7 +373,7 @@ dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "scripticus-server"
-version = "0.1.0"
+version = "0.0.0.dev0"
 source = { editable = "server" }
 dependencies = [
     { name = "fastapi" },

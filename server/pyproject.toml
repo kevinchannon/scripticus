@@ -1,6 +1,6 @@
 [project]
 name = "scripticus-server"
-version = "0.1.0"
+version = "0.0.0.dev0"
 description = "A package manager and registry for scripts — index service"
 readme = "README.md"
 requires-python = ">=3.11"

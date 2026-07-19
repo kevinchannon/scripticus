@@ -77,7 +77,10 @@ repo secrets.
   `scripticus_server.cli:app`), tests in `<member>/tests/` using Typer's
   `CliRunner`, pytest in the member's `dev` dependency group.
 - Each member's version has a single source: `[project.version]` in its
-  `pyproject.toml`, read at runtime via `importlib.metadata`.
+  `pyproject.toml`, read at runtime via `importlib.metadata`. The checked-in
+  value is always the placeholder `0.0.0.dev0` — obviously not a release —
+  because real versions exist only in release artifacts, stamped from the
+  tag by the release workflow.
 - README split: the root [README.md](README.md) is the project overview and
   developer guide; [client/README.md](client/README.md) is the client's PyPI
   page (install/usage/authoring docs); [server/README.md](server/README.md)

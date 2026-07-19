@@ -1,6 +1,6 @@
 [project]
 name = "scripticus-schema"
-version = "0.1.0"
+version = "0.0.0.dev0"
 description = "A package manager and registry for scripts — shared contract: manifest schema, identity, versioning"
 readme = "README.md"
 requires-python = ">=3.11"
