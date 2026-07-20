@@ -31,8 +31,8 @@ Three components:
    resolution, yank state, and the publish path. Python/FastAPI; Pydantic
    models double as the manifest schema shared with the client.
 3. **CLI client** — Python. Owns the local machine: shims, install state,
-   remotes/search-path configuration, scaffolding, and the interactive
-   install flow.
+   remotes/search-path configuration, publish credentials (D34),
+   scaffolding, and the interactive install flow.
 
 Deployment target for the server side is a single `docker-compose.yml`
 (index service + Gitea, SQLite-backed for small installations).
@@ -187,10 +187,20 @@ Principles:
 
 Everything lives under `~/.scripticus/`:
 
-- **`config.toml`** — the remotes list (prioritised; doubles as the
-  bare-name namespace search path) and defaults. Distributable org-wide via
+- **`config.toml`** — the remotes list as an ordered `[[remotes]]` array of
+  `{ name, url }` tables (D35); array order is both search-path priority
+  (doubling as the bare-name namespace search path, D5) and `publish`'s
+  default target, plus other defaults. Distributable org-wide via
   `scripticus config install <git-url>` (Conan-style). No Conan-style
   profiles.
+- **`credentials.toml`** — Gitea personal access tokens, one per remote,
+  stored plaintext with 0600 permissions (cargo-style, D34), keyed by
+  remote URL. Registered via `scripticus login <name>` (resolving an
+  already-configured remote) or `scripticus login <name> <url>` (also
+  registering the remote in `config.toml` on first use, D35), and replayed
+  as the `Authorization` header on publish (D32). `SCRIPTICUS_TOKEN`
+  overrides it in CI. A separate file from `config.toml` deliberately, so
+  org-distributed config (D12) can never carry a token.
 - **`installed.lock`** — install state: every installed package with exact
   version and content hash, the full resolved closure with
   direct-vs-transitive marking, and provenance (remote vs local `-f`
@@ -235,4 +245,7 @@ additive, not a rework:
 Deliberately not designed yet: auth token scoping for CI publishing and
 the resolver algorithm's internals. The read- and write-path API schemas
 are designed (D30, D32; publish auth is pass-through of the caller's
-Gitea token, D32).
+Gitea token, D32, obtained via `scripticus login` and stored per named
+remote, D34/D35). Token verification at login — a whoami pass-through
+endpoint on the index service — is planned follow-up work to D34, not
+yet designed in detail.

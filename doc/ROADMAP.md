@@ -69,6 +69,9 @@ control rather than cryptographic assurance.
       (package, version, download pointer). Single-version-per-closure
       (no side-by-side versions of the same package).
 - [ ] Cycle detection at publish time.
+- [ ] Token-verification endpoint: a whoami-style pass-through of the
+      caller's Gitea token, so the client can verify a token at `login`
+      time rather than at first publish (follow-up to D34).
 - [ ] Platform-aware resolution: the client's platform is an input to
       resolution so the correct artifact variant is selected automatically.
 - [ ] Read path: index service returns metadata plus direct download
@@ -123,8 +126,18 @@ control rather than cryptographic assurance.
 - [ ] Local install-state file (lockfile-style): installed packages, resolved
       versions and hashes, full resolved closure with direct-vs-transitive
       marking, and provenance.
-- [ ] Client config: remotes list (doubling as the namespace search path) and
-      install state. No Conan-style profiles.
+- [ ] Client config: remotes list as an ordered `[[remotes]]` array of
+      `{ name, url }` tables (doubling as the namespace search path; order
+      is also `publish`'s default-remote priority, D35) and install state.
+      No Conan-style profiles, no separate `default_remote` setting.
+- [ ] `publish --remote <name>` to target a non-default configured remote.
+- [ ] `login <name>` (existing remote) / `login <name> <url>` (first-time
+      login, also registers the remote in `config.toml`, D35): store a
+      Gitea personal access token per remote in `credentials.toml`
+      (plaintext, 0600, cargo-style; a separate file from the
+      org-distributable `config.toml`), with `SCRIPTICUS_TOKEN` as the CI
+      override (D34). Verification at login is follow-up work behind the
+      server's token-verification endpoint.
 - [ ] `config install <git-url>` to roll out org-wide client configuration
       (remotes, defaults) in one command (Conan-style).
 - [x] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with
@@ -151,6 +164,10 @@ Not scheduled; recorded so v1 decisions do not preclude them.
 - [ ] Curated/reviewed package programme under the reserved `library`
       namespace.
 - [ ] Federation/promotion between internal and public indices.
+- [ ] OS-keyring storage for login credentials (Secret Service / Keychain /
+      Credential Locker), replacing the plaintext `credentials.toml` at rest
+      where a keyring is available, with the file kept as the headless/CI
+      fallback (hardening on D34's storage model).
 - [ ] Dot-qualified invocation of namespaced command overloads — invoking a
       specific package's version of a command directly as
       `<namespace>.<command>` (e.g. `kevin-c.my-script`) regardless of which

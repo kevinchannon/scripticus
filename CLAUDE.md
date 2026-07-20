@@ -108,7 +108,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D29). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D35). Each
   entry has decision, reasoning, and consequences (good *and* bad).
 
 The decision record is the backbone: architecture and roadmap statements

@@ -260,9 +260,38 @@ archive is the source of truth.
 
 ### Publishing
 
+Publishing authenticates with a Gitea personal access token: create one in
+your Gitea user settings (it needs package-write scope), then log in to a
+remote by name:
+
+```console
+$ scripticus login origin
+Token: ********
+```
+
+The first time you log in to a remote that isn't already in `config.toml`,
+give its URL too — this registers the remote as well as authenticating:
+
+```console
+$ scripticus login origin https://scripts.example.com
+Token: ********
+```
+
+The token is stored in `~/.scripticus/credentials.toml`, readable only by
+you, and sent with each publish — the registry itself holds no credentials.
+In CI, set the `SCRIPTICUS_TOKEN` environment variable instead; it takes
+precedence over the stored token. Then, to publish:
+
 ```console
 $ cd my-cool-script
 $ scripticus publish
+```
+
+With more than one remote configured, `publish` targets the first one listed
+in `config.toml` unless you say otherwise:
+
+```console
+$ scripticus publish --remote public
 ```
 
 Publish is a single atomic operation: the client validates the manifest
@@ -292,8 +321,24 @@ installing machine. POSIX/macOS artifacts are `.tar.gz`; Windows artifacts are
 
 Client configuration lives in `~/.scripticus/`:
 
-- `config.toml` — remotes (in priority order; this list doubles as the bare-
-  name namespace search path) and defaults.
+- `config.toml` — remotes as a `[[remotes]]` array of `{ name, url }`
+  entries; list order is priority (this list doubles as the bare-name
+  namespace search path, and `publish` defaults to the first entry) — and
+  other defaults. For example:
+
+  ```toml
+  [[remotes]]
+  name = "origin"
+  url = "https://scripts.example.com"
+
+  [[remotes]]
+  name = "public"
+  url = "https://scripticus.example.org"
+  ```
+
+- `credentials.toml` — one Gitea access token per remote, keyed by URL and
+  registered with `scripticus login`. Kept separate from `config.toml` so
+  org-distributed configuration never carries a token.
 - `installed.lock` — install state: every installed package, its exact
   resolved version and content hash, the full resolved dependency closure
   (with direct vs transitive marking), and provenance (remote or local file).

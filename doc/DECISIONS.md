@@ -804,3 +804,107 @@ resolution failure for some innocent user later.
 - Bad: the union-graph over-approximation can reject a publish whose
   actual version-level ranges would have been satisfiable; accepted as
   the safer failure direction.
+
+---
+
+## D34. `login` stores a Gitea token per remote, cargo-style; verification at login deferred
+
+**Decision**: `scripticus login` prompts for a Gitea personal access
+token (created by the user in Gitea's own settings, with package-write
+scope) and stores it verbatim in `~/.scripticus/credentials.toml`, keyed
+by the remote's index-service URL, with file permissions 0600. (D35
+pins down the exact command grammar — remotes are named, and login
+takes a remote name — and how a remote's URL is established.) No username is stored — Gitea accepts
+bare token auth, and publish simply replays the stored token in the
+`Authorization` header (D32's pass-through). The `SCRIPTICUS_TOKEN`
+environment variable, when set, overrides the stored token — the CI
+path. Credentials live in their own file, never in `config.toml`,
+because D12 makes `config.toml` org-distributable via git: tokens must
+not travel with it. Login stores the token without verifying it; a
+verification step — a small whoami endpoint on the index service that
+passes the token through to Gitea, in D24's live-check pattern — is
+planned follow-up work, recorded here so the gap reads as sequencing,
+not oversight.
+
+**Reason**: This is the model every comparable tool converged on —
+`cargo login` (plaintext `credentials.toml`), `npm login` (`.npmrc`),
+`docker login` (unencrypted base64 in `config.json`). Plaintext on disk
+with tight permissions is the accepted precedent and honest about the
+threat model: an attacker who can read the file can read SSH keys too.
+The token is minted and scoped by Gitea, so D32's
+no-server-held-credentials property and the deliberate non-design of
+Scripticus-minted token scoping both survive untouched. Per-remote
+keying matches D10's multi-remote model. Deferring verification is safe
+because publish must handle stale or revoked tokens with an actionable
+"re-run `scripticus login`" error regardless — an unverified mistyped
+token degrades to that same clear failure at first publish.
+
+**Consequences**:
+- Good: D32 is unchanged — the index service still holds no credentials
+  of its own.
+- Good: CI publishing works today (a personal token in a CI secret,
+  supplied via `SCRIPTICUS_TOKEN`) without designing scoped tokens.
+- Good: the credentials/config file split makes leaking a token through
+  `config install` (D12) structurally impossible.
+- Bad: a plaintext token on disk; OS-keyring integration is possible
+  later but not designed.
+- Bad: until the verification follow-up lands, a mistyped token
+  surfaces at first publish rather than at login.
+
+---
+
+## D35. Named ordered remotes (`[[remotes]]`); publish defaults to the first; `login` doubles as first-time remote registration
+
+**Decision**: `config.toml`'s remotes list (D10) is a TOML array of
+tables, `[[remotes]]`, each entry `{ name, url }`. Array order remains
+search-path priority (D5) — this is unchanged, just given a concrete
+syntax. `scripticus publish` publishes to the first configured remote
+unless `--remote <name>` names another; there is no separate
+`default_remote` setting — list order alone decides, so there is only
+one place priority is expressed. Login takes a remote name:
+`scripticus login <name>` looks `<name>` up in the configured remotes
+and prompts for a token, storing it in `credentials.toml` (D34) keyed
+by that remote's URL. If `<name>` is not yet configured, this form
+fails with an error naming the two-argument alternative.
+`scripticus login <name> <url>` performs the same token capture but
+first adds `{name, url}` to `config.toml`'s remotes list (appended, so
+it takes the lowest search priority) if `<name>` is not already
+present — establishing the remote and authenticating in one command for
+a first-time login. If `<name>` already exists with a *different* URL,
+login refuses outright (no config or credential change) rather than
+silently repointing an existing remote; if it exists with the *same*
+URL, the URL argument is accepted as redundant confirmation and login
+proceeds as the one-argument form would.
+
+**Reason**: an ordered array-of-tables is the only TOML shape that
+keeps D5's search-path priority expressible without a second ordering
+field — a bare `[remotes]` table of `name = url` pairs, or a
+`default: true` flag per entry, both need extra state to say what
+order-of-list already says for free. Defaulting publish to the first
+remote avoids a second "which one is default" knob duplicating that
+same list order; `--remote` covers every case where the first isn't
+wanted, at zero cost when there is only one remote configured (expected
+to be the common case). Making `login` double as first-time
+registration avoids designing a separate `remote add` command for what
+is normally a one-shot event — the name and URL are already in hand at
+the point of first authenticating — while the URL-conflict refusal
+stops a command named for authentication from ever silently moving a
+remote's URL out from under other configuration.
+
+**Consequences**:
+- Good: one mechanism (list order) does both jobs — D5 bare-name
+  search-path priority and publish's default target — so there is
+  nothing to keep in sync between two settings.
+- Good: onboarding a first remote is one command; no manual
+  `config.toml` edit required.
+- Good: URL-keyed credentials (D34) hold up even though remotes are now
+  named — renaming a remote in `config.toml` doesn't orphan its stored
+  token.
+- Bad: `login`'s two-argument form does two jobs (register a remote,
+  then authenticate to it), a mild surprise for a command whose name
+  suggests only the latter; mitigated by documenting it plainly.
+- Bad: because `config.toml` can be org-distributed (D12) and `login`
+  can append to it, a user's local file can drift from the
+  org-distributed baseline by picking up ad hoc remotes — accepted as
+  no different from any other local edit; `scripticus config install`
+  remains the way to reset to the org baseline.
