@@ -1,3 +1,5 @@
+from contextlib import ExitStack
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -20,9 +22,23 @@ def client(session_factory, fake_gitea):
     app.dependency_overrides.clear()
 
 
+def post_archives(client, *archive_paths):
+    """Send every given archive as one part each under the batch's shared
+    "archives" multipart field, in a single request (D37).
+    """
+    with ExitStack() as stack:
+        files = [
+            ("archives", (path.name, stack.enter_context(path.open("rb"))))
+            for path in archive_paths
+        ]
+        return client.post("/packages", files=files)
+
+
 def post_archive(client, archive_path):
-    with archive_path.open("rb") as f:
-        return client.post("/packages", files={"archive": (archive_path.name, f)})
+    """One-archive convenience wrapper — a batch of size one (today's
+    single-archive behaviour, unchanged outcome, D37).
+    """
+    return post_archives(client, archive_path)
 
 
 def test_publish_records_version_and_uploads_blob(
@@ -36,8 +52,9 @@ def test_publish_records_version_and_uploads_blob(
     assert body["version"] == "1.0.0"
     assert body["publisher"] == "kevin-c"
     assert body["content_hash"].startswith("sha256:")
-    assert body["artifact"]["archive_format"] == "tar.gz"
-    assert body["artifact"]["platforms"] == ["linux", "macos"]
+    assert len(body["artifacts"]) == 1
+    assert body["artifacts"][0]["archive_format"] == "tar.gz"
+    assert body["artifacts"][0]["platforms"] == ["linux", "macos"]
     assert len(fake_gitea.uploads) == 1
 
     with session_factory() as session:
@@ -111,7 +128,7 @@ def test_unsupported_archive_extension_is_400(client, tmp_path):
     bogus = tmp_path / "package.rar"
     bogus.write_bytes(b"not an archive")
     with bogus.open("rb") as f:
-        response = client.post("/packages", files={"archive": ("package.rar", f)})
+        response = client.post("/packages", files={"archives": ("package.rar", f)})
     assert response.status_code == 400
 
 
@@ -119,8 +136,13 @@ def test_corrupt_archive_is_400(client, tmp_path):
     bogus = tmp_path / "package.tar.gz"
     bogus.write_bytes(b"this is not a tarball")
     with bogus.open("rb") as f:
-        response = client.post("/packages", files={"archive": ("package.tar.gz", f)})
+        response = client.post("/packages", files={"archives": ("package.tar.gz", f)})
     assert response.status_code == 400
+
+
+def test_empty_batch_is_400(client):
+    response = client.post("/packages", files=[])
+    assert response.status_code in (400, 422)
 
 
 def test_format_mismatching_declared_platforms_is_422(client, make_archive):
@@ -140,12 +162,15 @@ def test_duplicate_version_and_format_is_409(client, make_archive):
 
 
 def test_new_format_variant_of_identical_tree_is_accepted(client, make_archive):
+    # A *separate* publish adding a format to an already-published version
+    # remains a batch of one, validated against already-committed index
+    # state — explicitly unchanged by D37.
     first = make_archive(os_list=("linux", "windows"))
     second = make_archive(os_list=("linux", "windows"), archive_format="zip")
     assert post_archive(client, first).status_code == 201
     response = post_archive(client, second)
     assert response.status_code == 201, response.text
-    assert response.json()["artifact"]["platforms"] == ["windows"]
+    assert response.json()["artifacts"][0]["platforms"] == ["windows"]
 
     listing = client.get("/packages/kevin-c/my-tool").json()
     assert listing["versions"] == [{"version": "1.0.0", "yanked": False}]
@@ -224,3 +249,86 @@ def test_failed_index_commit_deletes_uploaded_blob(
 
     assert len(fake_gitea.uploads) == 1
     assert len(fake_gitea.deleted) == 1
+
+
+def test_multi_archive_batch_publishes_both_artifacts(
+    client, fake_gitea, session_factory, make_archive
+):
+    first = make_archive(os_list=("linux", "windows"))
+    second = make_archive(os_list=("linux", "windows"), archive_format="zip")
+    response = post_archives(client, first, second)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert len(body["artifacts"]) == 2
+    assert {a["archive_format"] for a in body["artifacts"]} == {"tar.gz", "zip"}
+    assert len(fake_gitea.uploads) == 2
+
+    with session_factory() as session:
+        versions = session.scalars(select(db.PackageVersion)).all()
+        assert len(versions) == 1
+        assert len(versions[0].artifacts) == 2
+
+
+def test_one_bad_archive_rejects_whole_batch(client, fake_gitea, make_archive):
+    good = make_archive()
+    bad = make_archive(name="other-tool", version="not-semver")
+    response = post_archives(client, good, bad)
+    assert response.status_code == 422
+    assert len(fake_gitea.uploads) == 0
+    assert client.get("/packages/kevin-c/my-tool").status_code == 404
+
+
+def test_content_hash_mismatch_across_batch_is_rejected(client, fake_gitea, make_archive):
+    one = make_archive(description="first")
+    two = make_archive(description="second", archive_format="zip", os_list=("windows",))
+    response = post_archives(client, one, two)
+    assert response.status_code == 422
+    assert "content" in response.json()["detail"]
+    assert len(fake_gitea.uploads) == 0
+
+
+def test_duplicate_archive_format_in_batch_is_rejected(client, fake_gitea, make_archive):
+    archive = make_archive()
+    response = post_archives(client, archive, archive)
+    assert response.status_code == 422
+    assert "tar.gz" in response.json()["detail"]
+    assert len(fake_gitea.uploads) == 0
+
+
+def test_partial_upload_failure_rolls_back_whole_batch(
+    client, fake_gitea, make_archive
+):
+    fake_gitea.fail_upload_after = 1
+    first = make_archive(os_list=("linux", "windows"))
+    second = make_archive(os_list=("linux", "windows"), archive_format="zip")
+    response = post_archives(client, first, second)
+    assert response.status_code == 502
+    assert len(fake_gitea.uploads) == 1
+    assert len(fake_gitea.deleted) == 1
+    assert client.get("/packages/kevin-c/my-tool").status_code == 404
+
+
+def test_failed_index_commit_deletes_every_uploaded_blob_in_batch(
+    session_factory, fake_gitea, make_archive
+):
+    def broken_commit():
+        raise RuntimeError("index database went away")
+
+    def session_override():
+        with session_factory() as session:
+            session.commit = broken_commit
+            yield session
+
+    app.dependency_overrides[get_session] = session_override
+    app.dependency_overrides[get_gitea_client] = lambda: fake_gitea
+    try:
+        client = TestClient(app)
+        first = make_archive(os_list=("linux", "windows"))
+        second = make_archive(os_list=("linux", "windows"), archive_format="zip")
+        with pytest.raises(RuntimeError):
+            post_archives(client, first, second)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert len(fake_gitea.uploads) == 2
+    assert len(fake_gitea.deleted) == 2
