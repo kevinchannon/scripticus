@@ -49,7 +49,7 @@ def post_archive(client, archive_path):
     with archive_path.open("rb") as f:
         return client.post(
             "/packages",
-            files={"archive": (archive_path.name, f)},
+            files={"archives": (archive_path.name, f)},
             headers={"Authorization": f"token {GITEA_TOKEN}"},
         )
 
@@ -61,7 +61,7 @@ def test_publish_stores_blob_in_real_gitea(client, make_archive):
     pointer = response.json()
 
     blob = httpx.get(
-        GITEA_URL + f"/api/packages/{GITEA_USER}/generic/e2e-tool/1.0.0/{pointer['artifact']['filename']}",
+        GITEA_URL + f"/api/packages/{GITEA_USER}/generic/e2e-tool/1.0.0/{pointer['artifacts'][0]['filename']}",
         headers={"Authorization": f"token {GITEA_TOKEN}"},
     )
     assert blob.status_code == 200
@@ -82,7 +82,7 @@ def test_bad_token_is_401_with_real_gitea(client, make_archive):
     with archive.open("rb") as f:
         response = client.post(
             "/packages",
-            files={"archive": (archive.name, f)},
+            files={"archives": (archive.name, f)},
             headers={"Authorization": "token not-a-real-token"},
         )
     assert response.status_code == 401

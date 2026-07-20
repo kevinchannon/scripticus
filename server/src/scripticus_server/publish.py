@@ -1,20 +1,27 @@
-"""The write path: atomic server-mediated publish (D8, D32).
+"""The write path: atomic server-mediated batch publish (D8, D32, D37).
 
-Order of operations is the atomicity guarantee: every validation and
-permission check happens first, the blob goes to Gitea next, and the index
-record is committed only after Gitea confirms the write. Failure at any
-step rejects the whole publish; a commit failure after the blob write
-triggers a best-effort blob delete so nothing dangles.
+`POST /packages` accepts one or more archives — a version's whole
+format-group set — in a single request. Order of operations is the
+atomicity guarantee: every archive is staged and validated, and the
+batch-wide cohesion and D33 dependency checks pass, before any Gitea
+write; only once every archive has validated does the server start
+uploading blobs; only once every upload is confirmed does it commit the
+index record(s). Failure anywhere rejects the whole batch: no blob is
+uploaded, nothing is committed. A failure after some blobs have already
+been uploaded (a later upload fails, or the index commit fails) triggers
+a best-effort delete of every blob this batch uploaded, so nothing
+dangles.
 
 Nothing the client claims is trusted (D8): identity, variant tags,
 dependencies, and the content hash are all derived from the uploaded
-archive server-side.
+archives server-side.
 """
 
 import re
 import tarfile
 import tempfile
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +36,7 @@ from scripticus_schema.manifest import (
     PACKAGE_NAME_RE,
     Manifest,
     ManifestError,
+    PackageMeta,
     commands_of,
     load_manifest,
 )
@@ -58,12 +66,14 @@ def _archive_format(filename: str) -> str:
     raise HTTPException(400, f"'{filename}' is not a supported archive (.tar.gz or .zip)")
 
 
-def _extract_archive(archive: Path, destination: Path) -> Path:
+def _extract_archive(archive: Path, destination: Path, label: str) -> Path:
     """Extract and return the single root directory of the package tree.
 
     The tar "data" filter (PEP 706) rejects path traversal, links pointing
     outside the tree, and device files; zipfile's extract sanitises
-    absolute paths and parent references itself.
+    absolute paths and parent references itself. ``label`` (the archive's
+    upload filename) is included in any error so a batch failure can be
+    attributed to the right archive.
     """
     try:
         if archive.name.endswith(".zip"):
@@ -73,22 +83,24 @@ def _extract_archive(archive: Path, destination: Path) -> Path:
             with tarfile.open(archive) as tar:
                 tar.extractall(destination, filter="data")
     except (tarfile.TarError, zipfile.BadZipFile, OSError) as exc:
-        raise HTTPException(400, f"cannot extract archive: {exc}") from exc
+        raise HTTPException(400, f"'{label}': cannot extract archive: {exc}") from exc
 
     roots = list(destination.iterdir())
     if len(roots) != 1 or not roots[0].is_dir():
-        raise HTTPException(400, "archive does not contain a single package directory")
+        raise HTTPException(
+            400, f"'{label}': archive does not contain a single package directory"
+        )
     return roots[0]
 
 
-def _artifact_platforms(manifest: Manifest, archive_format: str) -> list[str]:
+def _artifact_platforms(manifest: Manifest, archive_format: str, label: str) -> list[str]:
     group = dict(FORMAT_GROUPS)[archive_format]
     platforms = [os_name for os_name in group if os_name in manifest.platforms.os]
     if not platforms:
         raise HTTPException(
             422,
-            f"a .{archive_format} archive carries {'/'.join(group)} targets, but the"
-            f" manifest declares platforms {manifest.platforms.os}",
+            f"'{label}': a .{archive_format} archive carries {'/'.join(group)} targets,"
+            f" but the manifest declares platforms {manifest.platforms.os}",
         )
     return platforms
 
@@ -168,32 +180,112 @@ def _storage_filename(upload_name: str, manifest: Manifest, archive_format: str)
     )
 
 
+@dataclass
+class _StagedArchive:
+    """One archive of a batch, fully validated and read into memory — safe
+    to use after the staging temp directory it was extracted into is gone.
+    """
+
+    upload_name: str
+    data: bytes
+    archive_format: str
+    manifest: Manifest
+    content_hash: str
+    manifest_text: str
+    platforms: list[str]
+    filename: str
+
+
+def _stage_and_validate(archive: UploadFile, work_dir: Path) -> _StagedArchive:
+    upload_name = Path(archive.filename or "").name
+    data = archive.file.read()
+    archive_format = _archive_format(upload_name)
+
+    work_dir.mkdir(parents=True)
+    upload_path = work_dir / f"upload.{archive_format}"
+    upload_path.write_bytes(data)
+    package_root = _extract_archive(upload_path, work_dir / "tree", upload_name)
+
+    try:
+        manifest = load_manifest(package_root)
+    except ManifestError as exc:
+        raise HTTPException(422, f"'{upload_name}': {exc}") from exc
+
+    platforms = _artifact_platforms(manifest, archive_format, upload_name)
+    content_hash = tree_hash(package_root)
+    manifest_text = (package_root / "meta.toml").read_text()
+    filename = _storage_filename(upload_name, manifest, archive_format)
+
+    return _StagedArchive(
+        upload_name=upload_name,
+        data=data,
+        archive_format=archive_format,
+        manifest=manifest,
+        content_hash=content_hash,
+        manifest_text=manifest_text,
+        platforms=platforms,
+        filename=filename,
+    )
+
+
+def _check_batch_cohesion(staged: list[_StagedArchive]) -> None:
+    """D37: every archive in a batch is one tree in different containers —
+    the format-variant rule's shared-content-hash invariant, enforced here
+    rather than merely assumed, plus no two archives may claim the same
+    format.
+    """
+    hashes = {s.content_hash for s in staged}
+    if len(hashes) > 1:
+        detail = ", ".join(f"'{s.upload_name}' ({s.content_hash})" for s in staged)
+        raise HTTPException(
+            422,
+            "archives in one batch must be the same content in different"
+            f" containers (D26 format variants): {detail}",
+        )
+
+    format_owner: dict[str, str] = {}
+    for s in staged:
+        prior = format_owner.get(s.archive_format)
+        if prior is not None:
+            raise HTTPException(
+                422,
+                f"batch contains two .{s.archive_format} archives:"
+                f" '{prior}' and '{s.upload_name}'",
+            )
+        format_owner[s.archive_format] = s.upload_name
+
+
+def _rollback_uploads(
+    gitea: GiteaClient, meta: PackageMeta, uploaded: list[tuple[_StagedArchive, str]]
+) -> None:
+    """Best-effort cleanup of every blob this batch already put in Gitea."""
+    for s, _pointer in uploaded:
+        gitea.delete_blob(meta.namespace, meta.name, meta.version, s.filename)
+
+
 @router.post("/packages", status_code=201)
 def publish(
-    archive: UploadFile,
+    archives: list[UploadFile],
     session: Session = Depends(get_session),
     gitea: GiteaClient = Depends(get_gitea_client),
 ) -> PublishResult:
-    data = archive.file.read()
-    archive_format = _archive_format(Path(archive.filename or "").name)
+    if not archives:
+        raise HTTPException(400, "a publish request must contain at least one archive")
 
     with tempfile.TemporaryDirectory(prefix="scripticus-publish-") as staging_dir:
         staging = Path(staging_dir)
-        upload_path = staging / f"upload.{archive_format}"
-        upload_path.write_bytes(data)
-        package_root = _extract_archive(upload_path, staging / "tree")
+        staged = [
+            _stage_and_validate(archive, staging / str(i))
+            for i, archive in enumerate(archives)
+        ]
+        _check_batch_cohesion(staged)
 
-        try:
-            manifest = load_manifest(package_root)
-        except ManifestError as exc:
-            raise HTTPException(422, str(exc)) from exc
+        manifest = staged[0].manifest
+        content_hash = staged[0].content_hash
         meta = manifest.package
 
         if meta.namespace in RESERVED_NAMESPACES:
-            raise HTTPException(
-                403, f"the '{meta.namespace}' namespace is reserved"
-            )
-        platforms = _artifact_platforms(manifest, archive_format)
+            raise HTTPException(403, f"the '{meta.namespace}' namespace is reserved")
 
         try:
             user = gitea.authenticated_user()
@@ -206,9 +298,6 @@ def publish(
             raise HTTPException(
                 403, f"'{user}' cannot publish to namespace '{meta.namespace}'"
             )
-
-        content_hash = tree_hash(package_root)
-        manifest_text = (package_root / "meta.toml").read_text()
 
     namespace = session.scalar(
         select(db.Namespace).where(db.Namespace.name == meta.namespace)
@@ -233,25 +322,36 @@ def publish(
                 f"{meta.namespace}/{meta.name} {meta.version} already exists"
                 " with different content; versions are immutable",
             )
-        if any(a.archive_format == archive_format for a in existing.artifacts):
+        existing_formats = {a.archive_format for a in existing.artifacts}
+        duplicates = [s for s in staged if s.archive_format in existing_formats]
+        if duplicates:
+            detail = ", ".join(f"'{s.upload_name}' (.{s.archive_format})" for s in duplicates)
             raise HTTPException(
                 409,
-                f"{meta.namespace}/{meta.name} {meta.version} already has a"
-                f" .{archive_format} artifact; duplicate versions are rejected",
+                f"{meta.namespace}/{meta.name} {meta.version} already has an"
+                f" artifact in that format; duplicate versions are rejected: {detail}",
             )
     else:
         _check_dependency_targets(session, manifest)
         _check_no_cycle(session, manifest)
 
-    filename = _storage_filename(archive.filename or "", manifest, archive_format)
+    # Every archive in the batch has validated: only now may Gitea writes
+    # start. uploaded tracks what succeeded so a later failure can unwind it.
+    uploaded: list[tuple[_StagedArchive, str]] = []
     try:
-        pointer = gitea.upload_blob(meta.namespace, meta.name, meta.version, filename, data)
+        for s in staged:
+            pointer = gitea.upload_blob(
+                meta.namespace, meta.name, meta.version, s.filename, s.data
+            )
+            uploaded.append((s, pointer))
     except GiteaAuthError as exc:
+        _rollback_uploads(gitea, meta, uploaded)
         raise HTTPException(401, str(exc)) from exc
     except GiteaError as exc:
+        _rollback_uploads(gitea, meta, uploaded)
         raise HTTPException(502, str(exc)) from exc
 
-    # Gitea has confirmed the write; only now may the index record go in.
+    # Every blob is in Gitea; only now may the index record go in.
     try:
         if existing is None:
             if namespace is None:
@@ -273,23 +373,24 @@ def publish(
                 version.tool_deps.append(db.ToolDep(name=tool, required=False))
             for command, script in sorted(commands_of(manifest).items()):
                 version.commands.append(db.Command(name=command, script_path=script))
-            db.ManifestBlob(package_version=version, toml=manifest_text)
+            db.ManifestBlob(package_version=version, toml=staged[0].manifest_text)
         else:
             version = existing
-        db.Artifact(
-            package_version=version,
-            platforms=",".join(platforms),
-            language=meta.language,
-            archive_format=archive_format,
-            content_hash=content_hash,
-            size=len(data),
-            gitea_pointer=pointer,
-        )
+        for s, pointer in uploaded:
+            db.Artifact(
+                package_version=version,
+                platforms=",".join(s.platforms),
+                language=meta.language,
+                archive_format=s.archive_format,
+                content_hash=s.content_hash,
+                size=len(s.data),
+                gitea_pointer=pointer,
+            )
         session.add(version)
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        gitea.delete_blob(meta.namespace, meta.name, meta.version, filename)
+        _rollback_uploads(gitea, meta, uploaded)
         raise HTTPException(
             409,
             f"{meta.namespace}/{meta.name} {meta.version} was published"
@@ -297,7 +398,7 @@ def publish(
         ) from exc
     except Exception:
         session.rollback()
-        gitea.delete_blob(meta.namespace, meta.name, meta.version, filename)
+        _rollback_uploads(gitea, meta, uploaded)
         raise
 
     return PublishResult(
@@ -306,11 +407,14 @@ def publish(
         version=meta.version,
         content_hash=content_hash,
         publisher=user,
-        artifact=PublishedArtifact(
-            filename=filename,
-            archive_format=archive_format,
-            platforms=platforms,
-            language=meta.language,
-            size=len(data),
-        ),
+        artifacts=[
+            PublishedArtifact(
+                filename=s.filename,
+                archive_format=s.archive_format,
+                platforms=s.platforms,
+                language=meta.language,
+                size=len(s.data),
+            )
+            for s in staged
+        ],
     )

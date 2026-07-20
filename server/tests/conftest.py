@@ -63,10 +63,18 @@ os = [{", ".join(f'"{o}"' for o in os_list)}]
 class FakeGitea:
     """Stands in for GiteaClient behind the publish endpoint's boundary."""
 
-    def __init__(self, user="kevin-c", orgs=(), fail_upload=False, bad_token=False):
+    def __init__(
+        self,
+        user="kevin-c",
+        orgs=(),
+        fail_upload=False,
+        fail_upload_after=None,
+        bad_token=False,
+    ):
         self.user = user
         self.orgs = set(orgs)
         self.fail_upload = fail_upload
+        self.fail_upload_after = fail_upload_after
         self.bad_token = bad_token
         self.uploads = []
         self.deleted = []
@@ -81,6 +89,8 @@ class FakeGitea:
 
     def upload_blob(self, namespace, name, version, filename, data):
         if self.fail_upload:
+            raise GiteaError("Gitea blob write failed with 500")
+        if self.fail_upload_after is not None and len(self.uploads) >= self.fail_upload_after:
             raise GiteaError("Gitea blob write failed with 500")
         self.uploads.append((namespace, name, version, filename, len(data)))
         return f"/api/packages/{namespace}/generic/{name}/{version}/{filename}"
