@@ -60,10 +60,13 @@ control rather than cryptographic assurance.
       storage/auth/namespace substrate (generic package registry).
 - [ ] Owns the package index: manifest-aware search (name, tags, platform,
       language), version listing, and resolution.
-- [ ] Single-request atomic publish: the client sends the archive + manifest
-      to the index service; the service validates the manifest (without
-      trusting the client), writes the blob to Gitea, and commits the index
-      record only after Gitea confirms the write. Duplicate versions rejected.
+- [ ] Batch atomic publish: the client sends one or more archives — a
+      version's whole format-group set — plus manifests to the index
+      service in a single request; the service validates every archive
+      (without trusting the client) before writing any blob to Gitea, and
+      commits the index record(s) only after Gitea confirms every write. A
+      failure anywhere in the batch rejects the whole request — nothing
+      uploaded, nothing committed (D37). Duplicate versions rejected.
 - [ ] Server-side dependency resolution: given a root package, the service
       returns the full resolved transitive closure as a flat list of
       (package, version, download pointer). Single-version-per-closure
@@ -130,7 +133,14 @@ control rather than cryptographic assurance.
       `{ name, url }` tables (doubling as the namespace search path; order
       is also `publish`'s default-remote priority, D35) and install state.
       No Conan-style profiles, no separate `default_remote` setting.
-- [ ] `publish --remote <name>` to target a non-default configured remote.
+- [ ] `publish <path-prefix>` (e.g. `some/dir/my-cool-script-0.1.2`):
+      publish every pre-built archive at that location whose D26
+      wheel-style filename's name/version fields match exactly (not a raw
+      string prefix; dash/underscore normalised so the canonical dashed
+      name matches the filename's mangled form), sending them all as one
+      batched request — published together or rejected together, no
+      partial-success state (D36/D37). `publish` never invokes `pack`
+      itself. `--remote <name>` to target a non-default configured remote.
 - [ ] `login <name>` (existing remote) / `login <name> <url>` (first-time
       login, also registers the remote in `config.toml`, D35): store a
       Gitea personal access token per remote in `credentials.toml`

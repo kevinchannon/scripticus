@@ -280,24 +280,44 @@ Token: ********
 The token is stored in `~/.scripticus/credentials.toml`, readable only by
 you, and sent with each publish — the registry itself holds no credentials.
 In CI, set the `SCRIPTICUS_TOKEN` environment variable instead; it takes
-precedence over the stored token. Then, to publish:
+precedence over the stored token.
+
+`publish` doesn't pack for you — build the archive(s) first, then point
+`publish` at them by `name-version`, the same identifier `pack` just used
+for the filenames:
 
 ```console
-$ cd my-cool-script
-$ scripticus publish
+$ scripticus pack my-cool-script
+$ scripticus publish my-cool-script-0.1.2
 ```
+
+The argument is a path whose last segment is `<name>-<version>`; everything
+in that directory whose filename matches those fields (D26's tags — dashes
+in the name are matched against the filename's underscore form
+automatically) gets published. That means a package targeting both format
+groups publishes both archives from one command:
+
+```console
+$ scripticus pack my-cool-script -o builds
+$ scripticus publish builds/my-cool-script-0.1.2
+Published my-cool-script 0.1.2:
+  my_cool_script-0.1.2-linux.macos-bash.tar.gz
+  my_cool_script-0.1.2-windows-powershell.zip
+```
+
+Every matched archive goes up in a single request, and the whole batch is
+published together or rejected together — the index service validates all
+of them before writing any blob to Gitea or committing anything, so there
+is no state where one variant is live and another silently isn't. If
+publish fails, nothing in that batch was published; fix the problem and
+re-run.
 
 With more than one remote configured, `publish` targets the first one listed
 in `config.toml` unless you say otherwise:
 
 ```console
-$ scripticus publish --remote public
+$ scripticus publish builds/my-cool-script-0.1.2 --remote public
 ```
-
-Publish is a single atomic operation: the client validates the manifest
-locally (fail fast), then sends the archive to the index service, which
-re-validates, stores the artifact, and commits the index record — or rejects
-the whole thing. There is no state where a package is "half published."
 
 A published version is immutable. If you publish something broken:
 

@@ -92,19 +92,36 @@ Correctness is the package author's responsibility.
 Publish is a **single atomic request** from the client's perspective:
 
 1. Client validates the manifest locally (fail fast, UX only — not trusted).
-2. Client sends archive + manifest to the index service.
-3. Index service re-validates the manifest, enforces naming/semver rules,
-   rejects duplicate versions, and checks publish permission by delegating to
-   Gitea's ACLs.
-4. Index service writes the blob to Gitea's generic package registry.
-5. Only after Gitea confirms the write does the index service commit the
-   index record.
+2. Client sends one or more archives — a version's whole format-group set,
+   D37 — to the index service in a single request.
+3. Index service re-validates every archive's manifest, enforces
+   naming/semver rules, rejects duplicate versions, and checks publish
+   permission by delegating to Gitea's ACLs.
+4. Only once every archive in the batch has validated does the index
+   service write each blob to Gitea's generic package registry.
+5. Only after Gitea confirms every write does the index service commit the
+   index record(s).
 
 Failure at any step rejects the whole publish. This removes the
 orphaned-blob / dangling-index-entry class of inconsistency that a
 client-writes-to-both design would allow.
 
 Cycle detection for package dependencies happens at publish time.
+
+A multi-format package (D26) publishes as a **batch**: `POST /packages`
+accepts a multipart request carrying one or more archives, validates
+every one of them, and only writes any blob to Gitea (and commits any
+index record) once the whole batch has validated — atomic across the
+batch, not just per archive (D37). A failure anywhere in the batch
+rejects the whole request; nothing is uploaded, nothing is committed.
+Client-side, `scripticus publish <path-prefix>` (D36) selects every
+pre-built archive matching a `<name>-<version>` prefix and sends them
+all in one request; the command reports the whole set published or the
+whole set rejected, with no partial-success state to reason about. The
+format-variant rule (same content hash, format not yet present) still
+governs a genuinely *separate* publish later — e.g. adding a Windows
+build to an already-published Linux/macOS version next week — which is
+a batch of one, validated against already-committed index state.
 
 ## Read path (search / resolve / install)
 

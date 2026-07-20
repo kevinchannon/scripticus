@@ -731,6 +731,14 @@ the first persistent deployment, and in any case before v1.0.0.
 
 ## D32. Publish: pass-through Gitea auth, derived-from-archive validation, format-variant rule
 
+> **Superseded in part by [D37](#d37-batch-publish-one-multipart-request-for-a-versions-whole-archive-set-atomic-across-the-batch).** `POST /packages` now accepts a batch of
+> one or more archives in a single request, validated and committed
+> atomically as a set, rather than exactly one archive per request. Everything
+> else below — pass-through auth, deriving identity from the archive, no
+> trusted client claims, the `library` rejection, and the format-variant rule
+> governing a later *separate* publish adding a format to an
+> already-published version — stands unchanged.
+
 **Decision**: Publish is `POST /packages`, a multipart upload of one
 package archive with the caller's own Gitea token in the `Authorization`
 header. The server derives everything — identity, platforms, language,
@@ -908,3 +916,151 @@ remote's URL out from under other configuration.
   org-distributed baseline by picking up ad hoc remotes — accepted as
   no different from any other local edit; `scripticus config install`
   remains the way to reset to the org baseline.
+
+---
+
+## D36. `publish <path-prefix>` targets pre-built archives by name-version; stop-on-first-failure by default
+
+> **Superseded in part by [D37](#d37-batch-publish-one-multipart-request-for-a-versions-whole-archive-set-atomic-across-the-batch).** With the server validating and
+> committing a batch atomically, the client sends every matched archive in
+> one request instead of one request per archive — there is no partial
+> success left to stop-before or continue-past, so `--continue-on-error`
+> and the stop-on-first-failure default described below no longer apply.
+> Everything else — the `<path-prefix>` argument shape, structured
+> filename matching, dash/underscore normalisation, and `--remote` — stands
+> unchanged.
+
+**Decision**: `publish` does not invoke `pack`; the two are separate
+steps. `publish` takes one positional argument, a path whose final
+component is a `<name>-<version>` prefix — e.g.
+`scripticus publish some/dir/my-cool-script-0.1.2` — and it operates on
+every archive in that directory whose D26 wheel-style filename
+(`<name>-<version>-<platform-tag>-<lang>.<ext>`, name/version dashes
+normalised to underscores per D26) has a `name` field and `version`
+field matching exactly. Matching parses the filename into its
+structured fields and compares those, not a raw string prefix — a raw
+`startswith()` would wrongly match `my-cool-script-0.1.20` against a
+`...-0.1.2` prefix, or misattribute a hyphenated pre-release version
+into the wrong field. The path argument's name component is given in
+its canonical dashed form (matching the manifest and scaffold, e.g.
+`my-cool-script`); the matcher normalises both sides (dash and
+underscore treated as equivalent) before comparing, so the user never
+has to type or think about the filename's underscore mangling. Archives are published in a deterministic order
+(sorted by filename). By default, the first archive to fail aborts the
+remaining ones and the whole command exits non-zero, even if an earlier
+archive in the set already succeeded — `--continue-on-error` attempts
+every matched archive regardless of earlier failures, reports every
+outcome, and still exits non-zero if any failed. Failure output names
+which archives succeeded and which didn't, and points at re-running
+`publish` to retry.
+
+**Reason**: Requiring `pack` to run first keeps each command doing one
+job and matches D26's model of archives as the independent artifacts
+publish operates on, rather than publish reaching back into source
+directories and manifests itself. The `<name>-<version>` path argument
+reuses exactly the identifier `pack` already prints/creates, so nothing
+new needs to be memorised or typed by hand. Stop-on-first-failure is
+the closest a client can get to "one fails, they all fail": D16 makes
+published versions immutable with no hard delete, so there is no way to
+actually undo an archive that already landed in the index — the
+command can only stop making things worse and refuse to report success.
+That earlier success is not wasted, though: D32's format-variant rule
+(same content hash, format not yet present) makes a bare re-run of
+`publish` safe and idempotent, silently skipping the already-published
+archive and retrying only the missing one — the client's job is just to
+say that clearly. A boolean `--continue-on-error` was chosen over an
+enum like D18's `--force=` because there are only two behaviours here
+(stop vs. don't); D18's enum shape earns its indirection from having
+several forward-relevant modes, which doesn't apply here.
+
+**Consequences**:
+- Good: `publish`'s only input concern is "which archives", entirely
+  decoupled from how they were produced — consistent with D32's
+  per-archive independence and the format-variant rule's existence.
+- Good: the default behaviour never reports "published" when part of a
+  multi-format set failed, so a user cannot walk away thinking a
+  package is fully available when it isn't.
+- Good: recovery is a plain re-run, no new command or state needed,
+  because D32 already made retrying the missing format idempotent.
+- Bad: "stop-on-first-failure" is not true atomicity and cannot be —
+  documentation must be explicit that an already-succeeded archive
+  stays published even when the command as a whole reports failure.
+- Bad: filename-based matching depends on D26's naming convention
+  staying stable; a future change to that scheme would need this
+  matcher updated in step.
+
+---
+
+## D37. Batch publish: one multipart request for a version's whole archive set, atomic across the batch
+
+**Decision**: `POST /packages` accepts a multipart request carrying one
+or more archives — one file part each — rather than exactly one (D32).
+The server stages and validates every archive in the batch (manifest
+load, platform/format-group match, D33's dependency-target and cycle
+checks) before writing anything to Gitea. D33's checks run once per
+batch rather than once per archive: the format-variant rule already
+requires every archive in a version's set to share the same content
+hash, which guarantees an identical manifest across the batch, so there
+is only one dependency graph to check. If every archive validates, the
+server uploads each blob to Gitea and only then commits the index
+record(s); if any archive in the batch fails validation, the whole
+request is rejected — no blob is uploaded, nothing is committed — with
+a response identifying which archive(s) failed and why. On success,
+`PublishResult` reports the full batch: `artifact` becomes `artifacts`,
+a list, since success means every archive in the request published
+together, never a subset. Client-side, `scripticus publish
+<path-prefix>` (D36) sends every archive it discovers matching the
+path-prefix in this one batched request instead of looping over them
+individually; the command reports the whole batch published or the
+whole batch rejected, with nothing in between — D36's
+stop-on-first-failure default and `--continue-on-error` flag are
+dropped, since there is no partial success left to stop before or
+continue past. What is unchanged from D32: pass-through Gitea auth,
+deriving everything from the archive with no trusted client claims, the
+`library` namespace rejection, format-must-match-declared-platforms,
+and the format-variant rule governing a *later, separate* publish that
+adds a format to an already-published version — that remains a batch of
+size one, validated against already-committed index state exactly as
+D32 specified, because those archives were not built and submitted
+together.
+
+**Reason**: The server already stages one archive in a
+`tempfile.TemporaryDirectory` to validate it before touching Gitea (the
+existing `publish.py` implementation); extending that to a batch of N
+archives within one request's lifetime is a small generalisation of
+already-built machinery, not new architecture — no persistent staging
+directory, no session or multi-request transaction protocol, nothing
+that outlives the request. Real atomicity across a version's format set
+removes a gap D36 could only manage, not close: a client-side
+stop-on-first-failure loop could never undo an archive that had already
+landed via an earlier successful request, because D16 makes published
+versions immutable with no hard delete — the client could refuse to
+*claim* success but could not prevent the partial state existing.
+Moving the atomicity boundary to "everything the client meant to
+publish together" removes that gap at its source rather than
+papering over it with careful failure messages.
+
+**Consequences**:
+- Good: a multi-format publish is either fully live or not live at
+  all — no more "one variant published, the other didn't, re-run to
+  finish" state for a client to explain to a user.
+- Good: D33's checks move from "only run for the first archive of a new
+  version" (today's incidental behaviour, since `existing is not None`
+  skips them for a second, separate archive) to "run once per batch,
+  deliberately" — the same one-check-per-manifest shape, now the
+  designed behaviour rather than a side effect of request ordering.
+- Good: D36 sheds an entire flag and a whole failure-reporting
+  design (`--continue-on-error`, stop-on-first-failure ordering); the
+  client's job shrinks to "find the matching archives, send them all,
+  report the one outcome."
+- Bad: this revises a shipped, already-implemented endpoint
+  (`POST /packages` in `publish.py`) and its response schema
+  (`PublishResult` in `publish_api.py`), including the existing test
+  suite (`test_publish.py`) — not a greenfield addition.
+- Bad: larger request bodies and no partial-progress salvage on a
+  flaky connection — a mid-upload network failure now costs the whole
+  batch, not just the one format still uploading; accepted given these
+  are small script archives.
+- Bad: the API surface is slightly more complex on both sides (list of
+  files in, list of artifacts or one batch-level error out) than the
+  single-file/single-artifact shape it replaces.
