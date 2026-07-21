@@ -56,7 +56,11 @@ run by `.github/workflows/e2e.yml`). The server has
 no Typer CLI — `scripticus-svr` (`main.py`, argparse for
 `--host`/`--port`) prints a version/address banner and runs uvicorn, and
 the OpenAPI spec is served at `/openapi.json` rather than committed to
-the repo. Resolution does not exist yet. A server `Dockerfile` exists,
+the repo. Resolution is designed but not yet implemented (D42/D43 — a
+server-side solver fed the client's installed state via `POST /resolve`,
+resolve-then-fetch with direct-from-Gitea downloads, and tool resolution
+split across the client/server boundary; single-version-per-closure). A
+server `Dockerfile` exists,
 and the root `docker-compose.yml` is the two-service registry bundle
 (index service + Gitea). The design docs below
 describe the intended v1.0.0
@@ -125,7 +129,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D41). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D43). Each
   entry has decision, reasoning, and consequences (good *and* bad). Entries
   stay terse — match the register of D1–D11 (a tight Decision paragraph, a
   tight Reason, short consequence bullets). Architectural elaboration of a
@@ -167,5 +171,6 @@ casually:
   configuration change.
 
 Deliberately not designed yet (per ARCHITECTURE.md): auth token scoping
-for CI publishing and the resolver algorithm's internals. The read- and
-write-path API schemas are designed (D30, D32).
+for CI publishing. Resolution is now designed (D42/D43); only the
+solver's algorithmic internals remain implementation detail. The read-
+and write-path API schemas are designed (D30, D32).

@@ -1061,3 +1061,97 @@ cost is one command.
 - Bad: a first-time registration whose token is rejected leaves the
   remote in `config.toml` without a credential — recoverable by
   re-login, but a mild surprise.
+
+---
+
+## D42. Resolution: server-side solver over the client's installed state; resolve, then fetch direct from Gitea
+
+**Decision**: Installing from a remote is two phases. First, `POST
+/resolve` takes the root package (name plus optional version spec), the
+client's platform, and the client's installed closure — each installed
+package as `(name, version)` with the constraints it was resolved under —
+and returns the fully resolved set: one version per package
+(single-version-per-closure), each entry carrying its content hash, Gitea
+download pointer, and a direct/transitive marker, plus the aggregated
+tool requirements (D43). The server runs the only solver: it walks the
+dependency graph (acyclic by D33), consolidates each package to one node,
+and picks the highest version satisfying the intersection of every
+constraint reaching it, treating the installed packages as hard
+constraints — so a resolve never bumps a package in a way that breaks
+something already installed, and prefers an installed version that still
+satisfies. An empty intersection is a hard error naming the package and
+the conflicting constraints; versions never coexist side by side. Second,
+the client fetches each resolved blob straight from Gitea (D9) with its
+stored token, verifies the tree hash (D3), and installs through the
+existing transaction flow (D17) — the plan/confirm/prompt boundary sits
+between resolve and fetch, so every feasibility check runs before any
+mutation. Downloads stage-then-commit (all blobs fetched and verified
+before any unpack/shim) to preserve "never partially installed" (D17).
+The intersection-and-pick-highest step is a reusable version-window
+primitive, applied here to packages against the index and by D43 to
+tools. The resolve response is contract (a new `scripticus_schema`
+model); the solver's internals are not.
+
+**Reason**: The index already holds the whole graph, so the solver
+belongs where the data and the publish-validation code are — one tested
+implementation, not one shipped in every CLI where version skew could
+diverge. Passing the installed closure up delivers installed-aware
+resolution without a client-side solver. Reads bypassing the index
+service (D9) mean resolve needs no companion download endpoint — its
+pointers are Gitea URLs. Single-version-per-closure keeps resolution a
+forcing function that surfaces incompatibilities as upgrade/publish-order
+errors rather than silent sprawl, and matches the shared bin dir (D11).
+
+**Consequences**:
+- Good: one solver, server-side, unit-tested beside publish validation;
+  the client stays a planner/installer.
+- Good: installed state is honoured (no needless churn, no cross-install
+  breakage) without shipping resolution logic client-side.
+- Good: no second endpoint for downloads; resolve pointers are Gitea URLs
+  the client fetches directly.
+- Bad: the client uploads its installed inventory on every resolve — fine
+  within an org, more coupling than a pure GET.
+- Bad: an unsatisfiable window is a hard failure with no side-by-side
+  escape hatch; version-qualified shims (`ns.pkg.X.Y.Z.cmd`, with D38's
+  fully-qualified tier as the hook) stay a post-v1 option.
+- Bad: revises the roadmap's "server returns the closure from the root"
+  into "resolves given the client's installed state."
+
+---
+
+## D43. Tool-dependency resolution splits across the boundary; version windows are a fast-follow
+
+**Decision**: System tool requirements resolve in two halves, because the
+server cannot see a client's package manager. The server computes, via
+the same version-window primitive it uses for packages (D42), the
+required window per tool across the resolved closure (required vs optional
+preserved) and returns them in the resolve response. The client checks
+those windows against its local package manager — satisfiability (can the
+PM provide an in-window version) and conflict (against already-installed
+tools) — before anything is installed, then installs the accumulated tool
+set in one pass during apply. v1 ships this name-only: the manifest still
+models tools as bare `requires`/`optional` name lists, so the "window"
+degenerates to presence/installability with conflict on the name. Versioned tool constraints — a manifest and `scripticus_schema`
+extension allowing e.g. `git = ">=2.30"`, run through the shared
+windowing — are a fast-follow, deliberately not on the resolver's v1
+critical path.
+
+**Reason**: Only the client knows what its PM offers or has installed, so
+satisfiability and conflict detection are inherently client-side; only
+the server sees the whole closure, so window aggregation belongs there —
+the split follows the information, not convenience. Deferring tool
+versions lands the resolver without dragging a manifest/schema change
+onto its critical path, and because the window primitive is shared,
+adding them later is data-plumbing, not new algorithm.
+
+**Consequences**:
+- Good: the version-window algorithm is written once and reused for
+  packages and tools.
+- Good: tool feasibility is proven before any package or tool is
+  installed, so D17's "never partially installed" holds through the tool
+  path too.
+- Bad: system-PM installs are not cleanly rolled back, so a later apply
+  failure can leave tools behind — benign additions, unlike package
+  files/shims, which stage-then-commit.
+- Bad: name-only tools in v1 cannot express "needs git ≥ 2.30"; the
+  schema extension is deferred, not free.

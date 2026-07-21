@@ -4,8 +4,9 @@ This document describes the intended v1.0.0 architecture at the level of
 components, responsibilities, data flows, and the shape of the index
 service's data model. The read- and write-path API schemas are designed
 (D30, D32) and live in `scripticus_schema.index_api` /
-`scripticus_schema.publish_api`; the resolver algorithm's specifics are
-deliberately not pinned down yet.
+`scripticus_schema.publish_api`; the resolution architecture is designed
+(D42/D43), with only the solver's algorithmic internals left to
+implementation.
 
 ## Overview
 
@@ -129,22 +130,44 @@ a batch of one, validated against already-committed index state.
 - **Search** is served entirely by the index service (Gitea's generic
   registry has no usable programmatic listing/search; the index database is
   authoritative for discovery).
-- **Resolution** is server-side. The client asks for a package (name, and
-  optionally a version/range); the service resolves the version, then the
-  full transitive dependency closure, and returns a flat list of
-  (package, exact version, artifact pointer). Inputs to resolution include
-  the client's platform, so the correct variant artifact is selected
-  server-side.
+- **Resolution** is a server-side solver fed the client's state (D42).
+  `POST /resolve` takes the root package (name, optional version/range),
+  the client's platform, and the client's installed closure — each
+  installed package as `(name, version)` with the constraints it was
+  resolved under. The service walks the dependency graph (acyclic by
+  D33), consolidates each package to a single node, and picks the highest
+  version satisfying the intersection of every constraint reaching it,
+  with the installed packages entered as **hard constraints** — so a
+  resolve neither breaks an already-installed package nor needlessly bumps
+  one that still satisfies. It returns a flat closure of (package, exact
+  version, content hash, Gitea pointer, direct/transitive) plus the
+  aggregated tool requirements. Platform is an input, so the correct
+  variant artifact is chosen server-side. The intersect-and-pick-highest
+  step is a reusable **version-window primitive**, shared with tool
+  resolution.
 - Resolution enforces **single-version-per-closure**: exactly one version of
   any package in a resolved set. Side-by-side versions are rejected as
-  unsatisfiable rather than co-installed, because co-installation is
-  incompatible with a shared shim/bin directory.
-- **Blob download is direct**: the index service returns download
-  pointers/tokens and the client fetches artifacts from Gitea itself,
-  keeping the index service off the data path (npm-style split of metadata
-  vs tarball fetch).
+  unsatisfiable (a hard error naming the conflict) rather than
+  co-installed, because co-installation is incompatible with a shared
+  shim/bin directory (D11). Version-qualified shims to relax this are a
+  post-v1 option (D42), with D38's fully-qualified tier as the hook.
+- **Tool requirements** resolve across the boundary (D43): the server
+  aggregates each tool's required version window over the closure (via the
+  shared primitive); the client checks those windows against its local
+  package manager — satisfiability and conflict with installed tools —
+  before any install, then installs the accumulated set in one pass. v1
+  is name-only (presence/installability); versioned tool windows are a
+  fast-follow needing a manifest/schema extension.
+- **Blob download is direct**: `resolve` returns Gitea download pointers
+  and the client fetches artifacts from Gitea itself with its stored token
+  (D9) — no companion download endpoint — keeping the index service off
+  the data path (npm-style split of metadata vs tarball fetch).
 - The client verifies the content hash of every downloaded artifact against
-  the resolved hash before installing.
+  the resolved hash before installing. Downloads **stage-then-commit** —
+  every blob fetched and verified before any unpack/shim — mirroring
+  publish atomicity so a mid-fetch failure never leaves a partial install
+  (D17). System-tool installs are the exception: benign additions the PM
+  owns, not rolled back on a later failure.
 - **Yank** (npm model) is index-service state: yanked versions are excluded
   from search and `latest`/range resolution but remain resolvable when pinned
   exactly (including via lockfiles). Artifacts are never hard-deleted.
@@ -270,9 +293,13 @@ additive, not a rework:
   default remotes/search path), not an identity or storage change.
 - The reserved `library` namespace is the future home of curated packages.
 
-Deliberately not designed yet: auth token scoping for CI publishing and
-the resolver algorithm's internals. The read- and write-path API schemas
-are designed (D30, D32; publish auth is pass-through of the caller's
+Deliberately not designed yet: auth token scoping for CI publishing. The
+resolution architecture is now designed (D42/D43 — a server-side solver
+fed the client's installed state, resolve-then-fetch, tool resolution
+split across the boundary); only the solver's algorithmic internals
+(backtracking specifics) remain implementation detail rather than
+contract. The read- and write-path API schemas are designed (D30, D32;
+publish auth is pass-through of the caller's
 Gitea token, D32, obtained via `scripticus login` and stored per named
 remote, D34/D35). Token verification at login is served by the index
 service's `GET /whoami`, a pass-through of the caller's Gitea token to
