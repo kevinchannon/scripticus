@@ -72,9 +72,10 @@ control rather than cryptographic assurance.
       (package, version, download pointer). Single-version-per-closure
       (no side-by-side versions of the same package).
 - [x] Cycle detection at publish time.
-- [ ] Token-verification endpoint: a whoami-style pass-through of the
-      caller's Gitea token, so the client can verify a token at `login`
-      time rather than at first publish (follow-up to D34).
+- [x] Token-verification endpoint: `GET /whoami`, a whoami-style
+      pass-through of the caller's Gitea token, so the client can verify a
+      token at `login` time rather than at first publish (D40, follow-up
+      to D34). Client-side use at login is still to come.
 - [ ] Platform-aware resolution: the client's platform is an input to
       resolution so the correct artifact variant is selected automatically.
 - [ ] Read path: index service returns metadata plus direct download

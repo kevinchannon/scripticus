@@ -86,3 +86,18 @@ def test_bad_token_is_401_with_real_gitea(client, make_archive):
             headers={"Authorization": "token not-a-real-token"},
         )
     assert response.status_code == 401
+
+
+def test_whoami_returns_token_owner_with_real_gitea(client):
+    response = client.get(
+        "/whoami", headers={"Authorization": f"token {GITEA_TOKEN}"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["username"] == GITEA_USER
+
+
+def test_whoami_bad_token_is_401_with_real_gitea(client):
+    response = client.get(
+        "/whoami", headers={"Authorization": "token not-a-real-token"}
+    )
+    assert response.status_code == 401
