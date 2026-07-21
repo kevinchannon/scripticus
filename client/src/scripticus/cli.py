@@ -328,10 +328,10 @@ def _install_local(file: Path, mode: Optional[str]) -> None:
 
 
 def _print_remote_transaction(plan: RemotePlan, skip_tools: bool, tools_config: Tools) -> None:
+    root = next((p for p in plan.result.packages if p.direct), plan.result.packages[-1])
     console.print(
-        f"Resolving [bold]{plan.result.packages[-1].namespace}/"
-        f"{plan.result.packages[-1].name}[/bold] from {plan.remote.name}"
-        f" ({plan.remote.url})"
+        f"Resolving [bold]{root.namespace}/{root.name}[/bold]"
+        f" from {plan.remote.name} ({plan.remote.url})"
     )
 
     installs = [a for a in plan.actions if a.action == "install"]
