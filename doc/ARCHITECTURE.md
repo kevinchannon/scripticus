@@ -158,7 +158,7 @@ events.
 
 ```text
 namespace          — mirrors a Gitea user/org; a cached reference/FK anchor
-                     only. Gitea remains authoritative for ownership/ACLs.
+  |                  only. Gitea remains authoritative for ownership/ACLs.
   └── package      — (namespace, name), kebab-case; unique within namespace
         └── package_version   — (package, semver), immutable once written;
               │                 yanked flag; publish timestamp + publisher
