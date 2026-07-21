@@ -1,0 +1,26 @@
+# The single user-facing front for the registry bundle (D45). A client
+# points at one URL for everything; this splits the traffic internally:
+#
+#   /api/packages/.../generic/...  -> Gitea (blob download, D9)
+#   everything else                -> the index service
+#
+# Blob downloads pass straight through to Gitea's generic package registry,
+# so the index *application* never touches blob bytes (D9) — the proxy is
+# dumb pass-through infrastructure, not the index app. `resolve` returns
+# download pointers relative to this front URL, so the client fetches
+# `{remote.url}/api/packages/...` with its stored Gitea token, which the
+# proxy forwards untouched. The index<->Gitea internal calls (auth, publish
+# uploads) use the internal address directly and never come through here.
+:80 {
+	# Gitea's blob path is `/api/packages/...`; the index API lives under
+	# `/packages` (no `/api`), `/resolve`, `/search`, `/whoami`, `/health`,
+	# `/version`, so the two never collide.
+	@gitea path /api/packages/*
+	handle @gitea {
+		reverse_proxy gitea:3000
+	}
+
+	handle {
+		reverse_proxy index:8000
+	}
+}

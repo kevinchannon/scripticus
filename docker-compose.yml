@@ -1,16 +1,29 @@
-# The Scripticus registry bundle (ARCHITECTURE.md): the index service plus
-# the Gitea instance that provides storage, authentication, and namespace
-# ownership. See server/README.md for first-run Gitea setup (creating the
-# user/org that owns a namespace and a token to publish with).
+# The Scripticus registry bundle (ARCHITECTURE.md): a reverse proxy fronting
+# the index service and the Gitea instance that provides storage,
+# authentication, and namespace ownership. Clients (and enterprise firewalls)
+# see one URL — the proxy (D45) — which routes blob downloads to Gitea and
+# everything else to the index. See server/README.md for first-run Gitea setup
+# (creating the user/org that owns a namespace and a token to publish with).
 #
 # The index image is published by the release workflow on server-v* tags.
 # To run unreleased local changes instead, build from source:
 #   docker build -f server/Dockerfile -t kevinchannon/scripticus-server .
 services:
+  proxy:
+    image: caddy:2-alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - index
+      - gitea
+
   index:
     image: kevinchannon/scripticus-server:latest
-    ports:
-      - "8000:8000"
+    # No host port: the index sits behind the proxy on the internal network.
+    expose:
+      - "8000"
     environment:
       SCRIPTICUS_GITEA_URL: http://gitea:3000
       SCRIPTICUS_INDEX_DB: sqlite:////data/scripticus-index.db
@@ -21,6 +34,8 @@ services:
 
   gitea:
     image: gitea/gitea:1.24
+    # Kept on the host for first-run web setup (registering users/orgs and
+    # minting a publish token); the client never needs this address (D45).
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__server__ROOT_URL: http://localhost:3000/

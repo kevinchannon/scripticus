@@ -113,7 +113,7 @@ control rather than cryptographic assurance.
       configuration change for larger deployments.
 - [x] Deployment as a single `docker-compose.yml` bundling Gitea + the index
       service; SQLite-backed Gitea acceptable for small deployments.
-- [ ] Reverse proxy in the compose bundle presenting one user-facing URL,
+- [x] Reverse proxy in the compose bundle presenting one user-facing URL,
       routing internally to the index service and Gitea (D45), so clients
       and enterprise firewalls see a single endpoint and download pointers
       stay relative to it.

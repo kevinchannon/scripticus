@@ -81,9 +81,13 @@ configured with `SCRIPTICUS_GITEA_URL` (default `http://localhost:3000`).
 Server releases publish a Docker image to
 [`kevinchannon/scripticus-server`](https://hub.docker.com/r/kevinchannon/scripticus-server)
 (tagged with the release version and `latest`). The repository's
-`docker-compose.yml` is the full registry bundle — the index service plus
-the Gitea instance that provides storage, authentication, and namespace
-ownership — and needs no checkout:
+`docker-compose.yml` is the full registry bundle — a reverse proxy fronting
+the index service and the Gitea instance that provides storage,
+authentication, and namespace ownership — and needs no checkout. The proxy
+is the single URL clients use (`http://localhost:8000`): it routes blob
+downloads to Gitea and everything else to the index, so a client needs no
+Gitea address of its own (D45). Gitea's web UI stays on
+`http://localhost:3000` for first-run setup.
 
 ```console
 $ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
