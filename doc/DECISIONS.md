@@ -1315,3 +1315,37 @@ fully namespaced anyway (D4/D5).
   mirrored until federation lands (post-v1).
 - Bad: bare-name `install foo` does not work yet; users type
   `ns/foo` until the search path is designed.
+
+---
+
+## D47. `/resolve` returns each package's command map, so shim conflicts show before the prompt
+
+**Decision**: The resolve response (`ResolvedPackage`) carries the
+package's effective command→script-path map — the index's publish-time
+projection of the manifest, default-entrypoint rule already applied. The
+client uses it to compute the D17 transaction summary's shim conflicts and
+to write shims, so nothing about a package's commands requires reading its
+archive first.
+
+**Reason**: D17 requires shim conflicts — each contested convenience
+shim's current owner — in the summary *before* the confirm prompt, but a
+new package's command names live in its manifest, inside the archive, and
+D42 puts the blob fetch *after* the prompt. Without commands in the
+response the client could not honour both. The index already stores the
+map (the `command` table, D21), so returning it is a projection already
+paid for, not new server work, and it keeps D42's fetch-after-prompt
+boundary intact rather than pulling downloads before the prompt.
+
+**Consequences**:
+- Good: the pre-prompt summary is complete — version changes, tools, *and*
+  shim conflicts — with no archive fetched (D42's boundary unmoved).
+- Good: the client writes shims from the resolved map; the fetched
+  manifest is only re-validated, not the source of the command list.
+- Good (forward-looking): commands as first-class index-returned data is
+  the raw material for a future `dnf provides`-style reverse lookup —
+  "which package provides command X" — served straight from the index
+  without opening any archive.
+- Bad: widens the resolve wire contract (a D29 schema change, three-package
+  coordination), and the map duplicates what the fetched manifest also
+  carries — the resolved map is authoritative for the plan, the archive's
+  own manifest for on-disk validation.

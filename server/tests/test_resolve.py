@@ -28,12 +28,14 @@ class FakeIndex:
         platforms=("linux",),
         deps=None,
         tools=None,
+        commands=None,
         yanked=False,
     ):
         self._pkgs.setdefault(package, {})[version] = {
             "platforms": set(platforms),
             "deps": deps or {},
             "tools": tools or {},
+            "commands": commands or {},
             "yanked": yanked,
         }
         return self
@@ -57,6 +59,10 @@ class FakeIndex:
     def tools(self, package, version):
         meta = self._pkgs.get(package, {}).get(version)
         return list(meta["tools"].items()) if meta else []
+
+    def commands(self, package, version):
+        meta = self._pkgs.get(package, {}).get(version)
+        return dict(meta["commands"]) if meta else {}
 
 
 def resolve(index, root, spec="", platform="linux", installed=None):
@@ -198,6 +204,17 @@ def test_yanked_versions_are_excluded():
     assert versions_of(resolve(index, "a/foo")) == {"a/foo": "1.0.0"}
 
 
+def test_commands_are_returned_per_package():
+    index = FakeIndex().add(
+        "a/foo", "1.0.0", commands={"foo": "src/main.py", "foo-helper": "src/helper.py"}
+    )
+    result = resolve(index, "a/foo")
+    assert result.packages[0].commands == {
+        "foo": "src/main.py",
+        "foo-helper": "src/helper.py",
+    }
+
+
 def test_tools_are_aggregated_required_winning():
     index = (
         FakeIndex()
@@ -226,6 +243,7 @@ def client(session_factory):
 def seed(session_factory, namespace, name, version, **kwargs):
     deps = kwargs.get("deps", {})
     tools = kwargs.get("tools", {})
+    commands = kwargs.get("commands", {})
     platforms = kwargs.get("platforms", ("linux",))
     with session_factory() as session:
         ns = session.scalar(
@@ -248,6 +266,8 @@ def seed(session_factory, namespace, name, version, **kwargs):
             pv.dependencies.append(db.Dependency(target=target, spec=spec))
         for tool, required in tools.items():
             pv.tool_deps.append(db.ToolDep(name=tool, required=required))
+        for command, script in commands.items():
+            pv.commands.append(db.Command(name=command, script_path=script))
         session.add(package)
         session.add(pv)
         session.commit()
@@ -266,7 +286,14 @@ def post_resolve(client, root, spec="", platform="linux", installed=None):
 
 
 def test_endpoint_resolves_closure_with_pointers(client, session_factory):
-    seed(session_factory, "infra", "log-common", "2.1.0", tools={"jq": True})
+    seed(
+        session_factory,
+        "infra",
+        "log-common",
+        "2.1.0",
+        tools={"jq": True},
+        commands={"log-common": "src/main.sh"},
+    )
     seed(session_factory, "infra", "backup", "1.0.0", deps={"infra/log-common": "^2.0"})
 
     response = post_resolve(client, "infra/backup")
@@ -277,6 +304,7 @@ def test_endpoint_resolves_closure_with_pointers(client, session_factory):
     log_common = body["packages"][0]
     assert log_common["download_pointer"] == "/blob/infra/log-common/2.1.0"
     assert log_common["content_hash"] == "sha256:log-common:2.1.0"
+    assert log_common["commands"] == {"log-common": "src/main.sh"}
     assert body["packages"][1]["direct"] is True
     assert body["tools"] == [{"name": "jq", "required": True}]
 

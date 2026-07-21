@@ -181,8 +181,12 @@ a batch of one, validated against already-committed index state.
   with the installed packages entered as **hard constraints** — so a
   resolve neither breaks an already-installed package nor needlessly bumps
   one that still satisfies. It returns a flat closure of (package, exact
-  version, content hash, Gitea pointer, direct/transitive) plus the
-  aggregated tool requirements. Platform is an input, so the correct
+  version, content hash, Gitea pointer, direct/transitive, command map)
+  plus the aggregated tool requirements. Each package's command→script-path
+  map (the index's manifest projection, D21) rides along so the client can
+  present the D17 summary's shim conflicts — and write the shims — without
+  fetching the archive first, keeping D42's fetch-after-prompt boundary
+  intact (D47). Platform is an input, so the correct
   variant artifact is chosen server-side. The intersect-and-pick-highest
   step is a reusable **version-window primitive**, shared with tool
   resolution.

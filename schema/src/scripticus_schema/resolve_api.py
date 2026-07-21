@@ -34,6 +34,12 @@ class ResolvedPackage(BaseModel):
     download_pointer: str  # Gitea path; the client fetches it directly (D9)
     direct: bool  # the root the user asked for (vs pulled in transitively)
     already_satisfied: bool  # the client already has this exact version
+    # The effective command -> script-path map (the index's projection of the
+    # manifest, default-entrypoint rule applied at publish). Carried in the
+    # response so the client can present the D17 transaction summary's shim
+    # conflicts *before* prompting, without fetching the archive first — which
+    # keeps D42's fetch-after-prompt boundary intact (D47).
+    commands: dict[str, str] = Field(default_factory=dict)
 
 
 class ResolvedTool(BaseModel):

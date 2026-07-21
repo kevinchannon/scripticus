@@ -73,6 +73,12 @@ class Index(Protocol):
         """(tool name, required) for ``package@version``."""
         ...
 
+    def commands(self, package: str, version: str) -> dict[str, str]:
+        """command name -> script path for ``package@version`` (the index's
+        publish-time projection, default entrypoint already applied).
+        """
+        ...
+
 
 def _matches_all(specs: Iterable[VersionSpec], version: str) -> bool:
     return all(spec.matches(version) for spec in specs)
@@ -230,6 +236,7 @@ def resolve_closure(
                 download_pointer=artifact.download_pointer,
                 direct=(package == root),
                 already_satisfied=installed_versions.get(package) == version,
+                commands=index.commands(package, version),
             )
         )
 
@@ -301,6 +308,12 @@ class DbIndex:
         if pv is None:
             return []
         return [(dep.name, dep.required) for dep in pv.tool_deps]
+
+    def commands(self, package: str, version: str) -> dict[str, str]:
+        pv = self._version(package, version)
+        if pv is None:
+            return {}
+        return {command.name: command.script_path for command in pv.commands}
 
 
 @router.post("/resolve")
