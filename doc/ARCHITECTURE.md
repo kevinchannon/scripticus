@@ -132,10 +132,15 @@ a batch of one, validated against already-committed index state.
   authoritative for discovery).
 - **Resolution** is a server-side solver fed the client's state (D42).
   `POST /resolve` takes the root package (name, optional version/range),
-  the client's platform, and the client's installed closure — each
-  installed package as `(name, version)` with the constraints it was
-  resolved under. The service walks the dependency graph (acyclic by
-  D33), consolidates each package to a single node, and picks the highest
+  the client's platform, and the client's installed closure as
+  **identities only** — each installed package as
+  `namespace/name@version`, no constraints; the server re-derives each
+  installed version's constraints from its own index (D21), which it can
+  because D33 keeps every dependency edge within one index. So the request
+  scales with the installed count alone and the response stays bounded by
+  the root's closure, not the installed set. The service walks the
+  dependency graph (acyclic by D33), consolidates each package to a single
+  node, and picks the highest
   version satisfying the intersection of every constraint reaching it,
   with the installed packages entered as **hard constraints** — so a
   resolve neither breaks an already-installed package nor needlessly bumps

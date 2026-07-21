@@ -1068,9 +1068,18 @@ cost is one command.
 
 **Decision**: Installing from a remote is two phases. First, `POST
 /resolve` takes the root package (name plus optional version spec), the
-client's platform, and the client's installed closure — each installed
-package as `(name, version)` with the constraints it was resolved under —
-and returns the fully resolved set: one version per package
+client's platform, and the client's installed closure as **identities
+only** — each installed package as `namespace/name@version`, no
+constraints; the server re-derives each installed version's constraints
+from its own index (D21, and D33 keeps every dependency edge within one
+index, so the remote being resolved against already holds every
+constraint that could matter). This keeps the request a function of the
+installed count alone (~tens of bytes each), and the response bounded by
+the root's closure rather than the installed set. A locally-installed
+package (`install -f`) is in no index; today it cannot declare package
+dependencies, so it does not participate — if that is ever relaxed, its
+constraints would have to be sent explicitly. `/resolve` returns the
+fully resolved set: one version per package
 (single-version-per-closure), each entry carrying its content hash, Gitea
 download pointer, and a direct/transitive marker, plus the aggregated
 tool requirements (D43). The server runs the only solver: it walks the
