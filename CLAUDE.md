@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current state
 
 The write path is implemented end-to-end (pack → login → publish →
-index + Gitea), and the remote read path's install half is now in too:
+index + Gitea), and the remote read path is now complete on both halves:
 the server-side resolver (`POST /resolve`, D42/D43) and the client's
-resolve-then-fetch remote `install` (D42/D46). The main remaining client
-gap is `search`. The repo is a **uv workspace**
+resolve-then-fetch remote `install` (D42/D46), plus discovery — the
+client `search` fanning out to every configured remote's `GET /search`
+and merging the hits (D48). The v1 client surface is now feature-complete;
+post-v1 commands (`update`, `config install`, `yank`) remain. The repo is a **uv workspace**
 (Cargo-style) with three members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
 service fronting Gitea, providing the `scripticus-svr` command), and
@@ -39,7 +41,11 @@ against the remote's `/whoami` before storing, D41 — `whoami.py`), and
 name-version matching of pre-built archives, one batched multipart POST
 to the first-listed or `--remote`-named remote, token via
 `SCRIPTICUS_TOKEN` or the credential store, 401 mapped to an actionable
-re-login message), and `init` (post-install PATH bootstrap, D39 —
+re-login message), `search` (D48 — `search.py`: query every configured
+remote's `GET /search` in priority order and merge the hits, each tagged
+with its remote; `--remote` to restrict, `--platform`/`--language` filters,
+best-effort so a down remote is a warning not a failure, anonymous read),
+and `init` (post-install PATH bootstrap, D39 —
 `init.py`). The contract code lives in `schema/` (`scripticus_schema`):
 the Pydantic manifest model and validation (`manifest.py`), the D3/D27
 content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
@@ -78,7 +84,8 @@ the repo. System-tool installation shells out to an operator-configured
 command (`tools.py`, D44 — the `[tools] install`/`escalate` config, PATH
 presence check, `{packages}` substitution, platform-shell run; refuses when
 a required tool is missing and no installer is configured, with a
-`--skip-tools` escape). The remaining client gap is remote `search`. A
+`--skip-tools` escape). With `search` in, the v1 client commands are all
+implemented. A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
 registry bundle: a Caddy reverse-proxy front (`proxy/Caddyfile`, D45)
 presenting one user-facing URL over the index service and Gitea. The design

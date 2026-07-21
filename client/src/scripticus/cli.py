@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.table import Table
 
 from scripticus import __version__, scaffold
 from scripticus.config import ConfigError, Tools, load_remotes, load_tools, save_remotes
@@ -41,6 +42,7 @@ from scripticus.publish import (
     publish_archives,
     resolve_remote,
 )
+from scripticus.search import SearchError, search_remotes
 from scripticus.uninstall import (
     Candidate,
     UninstallError,
@@ -469,6 +471,68 @@ def _install_remote(
         console.print("Overwritten shims:")
         for conflict in plan.conflicts:
             console.print(f"  {conflict.shim}  (was {conflict.owner})")
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(
+        "",
+        help="Name substring to search for (empty lists everything).",
+    ),
+    remote: Optional[str] = typer.Option(
+        None,
+        "--remote",
+        help="Search only this remote (default: every configured remote).",
+    ),
+    platform: Optional[str] = typer.Option(
+        None,
+        "--platform",
+        help="Only show packages with an artifact for this platform.",
+    ),
+    language: Optional[str] = typer.Option(
+        None,
+        "--language",
+        "--lang",
+        help="Only show packages with an artifact in this language.",
+    ),
+) -> None:
+    """Search the configured remotes for packages by name."""
+    home = scripticus_home()
+
+    try:
+        remotes = load_remotes(home)
+        outcome = search_remotes(remotes, remote, query, platform, language)
+    except (ConfigError, SearchError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    for warning in outcome.warnings:
+        console.print(f"[yellow]warning:[/yellow] {escape(warning)}")
+
+    if not outcome.hits:
+        console.print("No packages found.")
+        return
+
+    show_remote = remote is None and len({h.remote for h in outcome.hits}) > 1
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Package")
+    table.add_column("Latest")
+    table.add_column("Description")
+    if show_remote:
+        table.add_column("Remote")
+
+    for hit in outcome.hits:
+        pkg = hit.package
+        row = [
+            f"{pkg.namespace}/{pkg.name}",
+            pkg.latest_version,
+            pkg.description or "—",
+        ]
+        if show_remote:
+            row.append(hit.remote)
+        table.add_row(*row)
+
+    console.print(table)
 
 
 @app.command()

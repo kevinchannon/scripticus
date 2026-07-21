@@ -34,10 +34,19 @@ package names resolve the way your organisation expects.
 
 ```console
 $ scripticus search backup --platform linux --lang bash
-NAMESPACE/NAME          VERSION  LANGUAGE  PLATFORMS      DESCRIPTION
-infra/backup-rotate     1.2.0    bash      linux, macos   Rotate and prune backup sets
-tools/db-backup         0.9.1    bash      linux          Dump and archive databases
+Package               Latest   Description
+infra/backup-rotate   1.2.0    Rotate and prune backup sets
+tools/db-backup       0.9.1    Dump and archive databases
 ```
+
+`search` queries every configured remote in priority order (unlike `install`,
+which stops at the first remote that has the package) and merges the results,
+each shown at its latest non-yanked version. With more than one remote hit, a
+`Remote` column shows which one each result came from; `--remote <name>`
+restricts the search to a single remote. If a remote is unreachable it's
+reported as a warning and the rest of the results still show. The optional
+`--platform` and `--language` (or `--lang`) filters narrow results to packages
+that publish a matching artifact.
 
 ### Installing
 

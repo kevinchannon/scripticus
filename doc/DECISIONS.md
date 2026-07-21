@@ -1349,3 +1349,32 @@ boundary intact rather than pulling downloads before the prompt.
   coordination), and the map duplicates what the fetched manifest also
   carries — the resolved map is authoritative for the plan, the archive's
   own manifest for on-disk validation.
+
+---
+
+## D48. `search` queries every remote and merges, best-effort
+
+**Decision**: The client's `search <query>` calls each configured remote's
+`GET /search` (D30) in priority order and merges the hits, each tagged with
+the remote it came from; `--remote` restricts to one. Unlike `install`, which
+stops at the first remote hosting the root (D46), search fans out — the point
+is to see what exists, not to pick one. Discovery is best-effort: a remote
+that is unreachable or errors becomes a warning and the others' results still
+show; only an all-remotes failure (or no remotes) is a hard error. The call
+sends no token — `/search` is an anonymous read.
+
+**Reason**: Search and install answer different questions. Install wants *the*
+package to fetch, so first-match-wins is right; search wants the landscape, so
+stopping early would hide mirrors and alternatives. Being resilient to one
+down remote keeps discovery useful when part of a federation is offline —
+whereas install must fail closed. The server already excludes yanked versions
+and applies the platform/language filters (D30), so the client just renders.
+
+**Consequences**:
+- Good: completes the read path — the last client gap (search) is closed.
+- Good: results are honest about provenance (remote-tagged), so mirrored or
+  differing versions across remotes are visible rather than silently merged.
+- Bad: search and install treat a down remote differently (warn vs. fail),
+  a deliberate asymmetry to keep straight.
+- Bad: no cross-remote dedup in v1 — the same package on two mirrors shows
+  twice; a package appearing once per remote is the honest v1 behaviour.
