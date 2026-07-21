@@ -1174,17 +1174,23 @@ in `config.toml` (`[tools] install`), not package-manager logic Scripticus
 encodes. On apply, the required tools not already on `PATH` are
 substituted into that command — a `{packages}` placeholder (shell-quoted,
 space-joined; appended if absent) — and it runs once through the platform
-shell (`bash -lc` / `cmd /c`), inheriting the process environment. The
-command carries no `sudo`: if installing tools needs root, the whole
-`scripticus install` is run as root by the operator. With no `[tools]
-install` configured, Scripticus never invokes a package manager — missing
-*required* tools abort the install listing them (with a `--skip-tools`
-escape), missing *optional* tools are only reported. v1 "satisfiability"
-is PATH presence only; an install-only command cannot be queried for
-versions, so versioned tool windows and an optional query/check command
-are post-v1 (D43). Tool names come from third-party manifests, so they are
-validated to `[A-Za-z0-9][A-Za-z0-9._+-]*` at manifest parse and
-shell-quoted at invocation — a manifest cannot inject shell.
+shell (`bash -lc` / `cmd /c`), inheriting the process environment.
+Scripticus itself never requires elevated privilege: its own state is
+user-space (`~/.scripticus`, D11/D39), so `install`/`uninstall` of a
+package and its shims run as the invoking user, and `uninstall` never
+touches system tools. The *only* action that may need root is the tool
+command, and it is elevated in isolation by an optional machine-configured
+prefix, `[tools] escalate` (e.g. `"sudo"`, `"doas"`, or empty when already
+root / on Windows-as-admin), prepended to the tool command alone. With no
+`[tools] install` configured, Scripticus never invokes a package manager —
+missing *required* tools abort the install listing them (with a
+`--skip-tools` escape), missing *optional* tools are only reported. v1
+"satisfiability" is PATH presence only; an install-only command cannot be
+queried for versions, so versioned tool windows and an optional
+query/check command are post-v1 (D43). Tool names come from third-party
+manifests, so they are validated to `[A-Za-z0-9][A-Za-z0-9._+-]*` at
+manifest parse and shell-quoted at invocation — a manifest cannot inject
+shell.
 
 **Reason**: Encoding dnf/apt/apk/snap/choco/winget and their flags, pin
 syntax, and confinement rules is a matrix we would own forever, and in an
@@ -1192,22 +1198,27 @@ enterprise it is useless without an override for proxies, mirrors, and
 credentials — so the override is the whole feature (D2/D14: offload to the
 substrate, do not reimplement it). The shell expands env vars for free, so
 proxies and credentials stay in the machine environment while the command
-stays in the org-distributable config (D12), secret-free. Keeping
-privilege out of the command dodges a sudo/doas/root-user/Windows matrix
-and a credential-in-config trap.
+stays in the org-distributable config (D12), secret-free. Scoping
+elevation to a machine-set prefix on the tool command — rather than
+running all of `scripticus install` as root — keeps the tool a
+user-space program (no sudo for the common no-tools install, user state
+never lands under root's home), keeps the base command portable across
+sudo/doas/root/Windows, and keeps privilege out of package-authored data.
 
 **Consequences**:
 - Good: zero package-manager code; any manager, including unknown ones,
   works if the operator can write its command line.
+- Good: reads and package install/uninstall never need privilege; only the
+  tool command elevates, and only when a required tool is missing.
 - Good: proxies/mirrors/credentials come from the environment; the
   configured command carries no secrets and distributes cleanly (D12).
 - Good: no package manager runs unless the operator opted in; third-party
   manifests cannot inject shell.
 - Bad: no zero-config convenience — a machine with no `[tools] install`
   cannot auto-install tools (by design; examples ship in docs, not code).
-- Bad: installing tools needs the whole run as root, which writes user
-  state under root's home unless `SCRIPTICUS_HOME`/`sudo -E` is used — the
-  pattern is to provision tools once as root (or pre-install) and install
-  packages as yourself.
+- Bad: an escalate prefix that scrubs the environment (`sudo` does by
+  default) can drop the proxy/credential env vars the command relies on —
+  the operator preserves them via the prefix itself (`sudo -E`) or their
+  sudoers config; Scripticus does not paper over it.
 - Bad: PATH presence is coarse — a tool present but too old is not caught
   until versioned windows land (post-v1).

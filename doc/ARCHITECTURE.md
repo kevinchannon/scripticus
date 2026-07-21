@@ -263,9 +263,10 @@ Everything lives under `~/.scripticus/`:
 - **`config.toml`** — the remotes list as an ordered `[[remotes]]` array of
   `{ name, url }` tables (D35); array order is both search-path priority
   (doubling as the bare-name namespace search path, D5) and `publish`'s
-  default target, plus other defaults. Optionally a `[tools]` table whose
+  default target, plus other defaults. Optionally a `[tools]` table — an
   `install` command Scripticus shells out to for system-tool installation
-  (D44). Distributable org-wide via `scripticus config install <git-url>`
+  and an `escalate` prefix for elevating just that command (D44).
+  Distributable org-wide via `scripticus config install <git-url>`
   (Conan-style). No Conan-style profiles.
 - **`credentials.toml`** — Gitea personal access tokens, one per remote,
   stored plaintext with 0600 permissions (cargo-style, D34), keyed by
@@ -334,16 +335,19 @@ package-manager logic (D44). Flow:
 
 ```toml
 [tools]
-install = "apt-get install -y {packages}"   # no sudo — see below
+install = "apt-get install -y {packages}"   # portable base command
+escalate = "sudo"                            # machine-set; how to elevate
 ```
 
-- **No privilege management.** The command carries no `sudo`/`doas`; if
-  installing tools needs root, the whole `scripticus install` is run as
-  root. Because package files and shims are user-space (`~/.scripticus`),
-  the natural pattern is to provision tools once as root (or pre-install
-  them) and install packages as yourself — running the whole install as
-  root otherwise writes user state under root's home unless
-  `SCRIPTICUS_HOME`/`sudo -E` is set.
+- **Scripticus never requires privilege for itself.** Package files and
+  shims are user-space (`~/.scripticus`), so `install`/`uninstall` run as
+  the invoking user and `uninstall` never touches system tools. The one
+  action that may need root is the tool command, elevated *in isolation*
+  by the optional `[tools] escalate` prefix (`"sudo"`, `"doas"`, or empty
+  when already root / Windows-as-admin) prepended to the tool command
+  alone — not by running all of `scripticus install` as root. Note a
+  scrubbing escalator (`sudo` by default) drops proxy/credential env vars;
+  the operator preserves them via the prefix (`sudo -E`) or sudoers.
 - **No installer configured** → Scripticus never invokes a package
   manager: missing *required* tools abort the install listing them (with a
   `--skip-tools` escape), missing *optional* tools are only reported.

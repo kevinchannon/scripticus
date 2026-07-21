@@ -88,9 +88,11 @@ control rather than cryptographic assurance.
       aggregates each tool requirement over the closure; the client checks
       PATH presence and installs the missing set by shelling out to an
       operator-configured `[tools] install` command (no package-manager
-      logic encoded; no `sudo` in the command — run the whole install as
-      root if tools need it). Missing required tools with no installer
-      configured abort with a `--skip-tools` escape. v1 is name-only;
+      logic encoded). Scripticus itself never needs privilege — its state
+      is user-space; only the tool command elevates, via an optional
+      machine-set `[tools] escalate` prefix (`sudo`/`doas`/empty). Missing
+      required tools with no installer configured abort with a
+      `--skip-tools` escape. v1 is name-only;
       versioned tool windows are a fast-follow needing a manifest/schema
       extension.
 - [ ] Read path (designed, D42): `/resolve` returns metadata plus direct
