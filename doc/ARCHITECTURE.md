@@ -225,7 +225,8 @@ Everything lives under `~/.scripticus/`:
   install). `update` and `uninstall` operate against this without a server
   round-trip; `update` skips local-provenance entries with a warning.
 - **`bin/`** — the shim directory, added to PATH once at client install
-  time. POSIX shims are symlinks or one-line wrappers; Windows shims are
+  time by `scripticus init` (D39). POSIX shims are symlinks or one-line
+  wrappers; Windows shims are
   generated `.cmd` files invoking the correct interpreter (interpreter choice
   comes from the manifest's language field; no compiled shims needed since
   targets are scripts, not binaries with DLL dependencies). Each command

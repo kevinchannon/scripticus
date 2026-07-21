@@ -966,3 +966,31 @@ every convenience shim. Precedent: `python3.11` alongside `python3`.
   revised.
 - Bad: a default-entrypoint package `foo/a` yields the ugly `foo.a.a` —
   accepted; it is typed only when both convenience tiers are contested.
+
+---
+
+## D39. `init` edits one `$SHELL`-chosen profile file; Windows user PATH via registry
+
+**Decision**: `scripticus init` puts the bin directory on the persistent
+PATH by appending one marked `export PATH=...` line to a single profile
+file — `~/.zshrc` for zsh, `~/.bashrc` for bash, `~/.profile` otherwise —
+or, on Windows, by appending to the per-user `Path` value in
+`HKCU\Environment` (not `setx`, which truncates at 1024 characters).
+Idempotent by inspection: nothing is written when the bin directory
+already appears on the live `PATH` or in the target file/value. It also
+pre-creates the state skeleton (`~/.scripticus/bin/`) and tells the user
+to restart their shell.
+
+**Reason**: pip cannot edit a shell profile, so the "added to PATH once
+at install time" step D11 assumes needs a command (the `pipx ensurepath`
+pattern). One predictable file per shell beats userpath-style multi-file
+writes: easy to inspect, one line to remove to undo, and `$SHELL` is the
+best available signal for which file is actually read.
+
+**Consequences**:
+- Good: idempotent and inspectable; re-running is always safe.
+- Good: manual setups are respected — an existing PATH entry, however
+  written, suppresses the edit.
+- Bad: single-file simplicity mishandles edge cases — macOS bash login
+  shells read `.bash_profile`, and fish doesn't read `.profile` — those
+  users add the printed line themselves.

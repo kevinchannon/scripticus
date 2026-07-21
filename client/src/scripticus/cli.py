@@ -10,6 +10,7 @@ from rich.markup import escape
 from scripticus import __version__, scaffold
 from scripticus.config import ConfigError, load_remotes, save_remotes
 from scripticus.credentials import CredentialsError, resolve_token, set_token
+from scripticus.init import ensure_persistent_path, ensure_skeleton, on_path
 from scripticus.install import (
     InstallError,
     Transaction,
@@ -59,6 +60,27 @@ def main(
     ),
 ) -> None:
     """Scripticus — publish, discover, version, and install shared scripts."""
+
+
+@app.command()
+def init() -> None:
+    """One-time setup: create ~/.scripticus and put its bin dir on PATH."""
+    home = scripticus_home()
+    bin_dir = home / "bin"
+
+    if ensure_skeleton(home):
+        console.print(f"Created {home} (bin/)")
+
+    if on_path(bin_dir):
+        console.print(f"{bin_dir} is already on your PATH — nothing more to do")
+        return
+
+    changed, where = ensure_persistent_path(bin_dir)
+    if changed:
+        console.print(f"Added {bin_dir} to PATH in {where}")
+    else:
+        console.print(f"{bin_dir} is already configured in {where}")
+    console.print("Restart your shell (or re-source your profile) to pick it up.")
 
 
 def _validate_language(value: str) -> str:

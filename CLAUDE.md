@@ -27,7 +27,8 @@ in `credentials.py`), and `publish` (D36/D37 — `publish.py`: structural
 name-version matching of pre-built archives, one batched multipart POST
 to the first-listed or `--remote`-named remote, token via
 `SCRIPTICUS_TOKEN` or the credential store, 401 mapped to an actionable
-re-login message). The contract code lives in `schema/` (`scripticus_schema`):
+re-login message), and `init` (post-install PATH bootstrap, D39 —
+`init.py`). The contract code lives in `schema/` (`scripticus_schema`):
 the Pydantic manifest model and validation (`manifest.py`), the D3/D27
 content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
 models for the read API (`index_api.py`, D30) and publish response
@@ -118,7 +119,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D38). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D39). Each
   entry has decision, reasoning, and consequences (good *and* bad). Entries
   stay terse — match the register of D1–D11 (a tight Decision paragraph, a
   tight Reason, short consequence bullets). Architectural elaboration of a

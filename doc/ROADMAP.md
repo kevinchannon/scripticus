@@ -111,7 +111,7 @@ docs in the client README):
 | `install <ns/name>[@ver]`   | Install from a remote, with dependency resolution      | Planned     |
 | `search <query>`            | Search the index                                       | Planned     |
 | `update [<pkg>]`            | Update installed remote-provenance packages            | Planned     |
-| `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Planned     |
+| `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
 | `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
 | `yank <ns/name>@<ver>`      | Hide a published version from search/latest            | Planned     |
 
@@ -143,12 +143,12 @@ installed command directly invocable by its namespaced names instead.
       Scripticus install time. POSIX: symlink or one-line wrapper. Windows:
       generated `.cmd` shim invoking the correct interpreter (no compiled
       shims needed).
-- [ ] `init`: the one-shot post-install bootstrap the shim scheme's
+- [x] `init`: the one-shot post-install bootstrap the shim scheme's
       "added to PATH once at install time" premise relies on — pip cannot
       edit a shell profile, so a command must: idempotently add
       `~/.scripticus/bin` to the persistent PATH (shell profile on POSIX,
-      the user PATH on Windows), pre-create the client state skeleton so
-      the PATH entry isn't dangling, and tell the user to restart their
+      the user PATH on Windows, D39), pre-create the client state skeleton
+      so the PATH entry isn't dangling, and tell the user to restart their
       shell.
 - [x] Command-name collisions: last-install-wins, with `use` to manually
       re-point a shim.
