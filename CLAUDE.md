@@ -119,7 +119,10 @@ repo secrets.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
 - [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D38). Each
-  entry has decision, reasoning, and consequences (good *and* bad).
+  entry has decision, reasoning, and consequences (good *and* bad). Entries
+  stay terse — match the register of D1–D11 (a tight Decision paragraph, a
+  tight Reason, short consequence bullets). Architectural elaboration of a
+  decision's mechanics belongs in ARCHITECTURE.md, not the record.
 
 The decision record is the backbone: architecture and roadmap statements
 trace back to numbered decisions. When changing a design, update or add a

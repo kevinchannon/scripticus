@@ -106,7 +106,8 @@ Failure at any step rejects the whole publish. This removes the
 orphaned-blob / dangling-index-entry class of inconsistency that a
 client-writes-to-both design would allow.
 
-Cycle detection for package dependencies happens at publish time.
+Declared package dependencies must be fully namespaced and already
+present in the index, and cycle detection happens at publish time (D33).
 
 A multi-format package (D26) publishes as a **batch**: `POST /packages`
 accepts a multipart request carrying one or more archives, validates

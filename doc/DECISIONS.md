@@ -672,407 +672,258 @@ coupling; `schema` states the admission rule in the directory listing.
 
 ## D30. The read API's wire models are the first pinned-down API schemas
 
-**Decision**: The index service's read endpoints —
-`GET /packages/{namespace}/{name}` (version listing) and `GET /search`
-(name substring plus optional platform/language filters) — are the first
-part of the client/server API to have designed schemas. Their response
-models (`VersionSummary`, `PackageVersions`, `PackageSummary`,
-`SearchResults`) live in `scripticus_schema.index_api`, per D29's
-admission rule. The models encode the read-path contract itself: version
-listings are ordered newest-first by semver precedence (D16) and include
-yanked versions marked as such; search results exclude yanked versions
-entirely — a package's `latest_version` is its latest non-yanked version,
-and a package with every version yanked does not appear (npm-style yank).
+**Decision**: The read endpoints — `GET /packages/{namespace}/{name}`
+(version listing) and `GET /search` (name substring plus optional
+platform/language filters) — get the first designed API schemas, as
+response models in `scripticus_schema.index_api` (per D29). The models
+encode the contract itself: version listings are newest-first by semver
+precedence (D16) with yanked versions included and marked; search
+excludes yanked versions entirely (npm-style — a fully-yanked package
+does not appear at all).
 
-**Reason**: D29 anticipated wire-format models "once the API is designed";
-the read path is designed first because search and version listing have
-the simplest contract and no write-side entanglements (auth, atomicity,
-Gitea) — pinning them down forces the index data model into existence
-without blocking on publish design. Putting the ordering and yank
-semantics in the schema package rather than leaving them as server
-behaviour makes them contract, not implementation detail: a client may
-rely on `versions[0]` being the newest, and on search never surfacing
-yanked versions.
+**Reason**: The read path has the simplest contract and no write-side
+entanglements (auth, atomicity, Gitea), so designing it first forces the
+index data model into existence without blocking on publish design.
+Encoding the ordering and yank semantics in the schema package makes
+them contract, not server implementation detail.
 
 **Consequences**:
-- Good: the publish and resolve stories build against an existing data
-  model and an established pattern for where API shapes live.
+- Good: publish and resolve build against an existing data model and an
+  established home for API shapes.
 - Good: yank visibility rules are written down once, in the contract.
-- Bad: the server now depends on `scripticus-schema`, so D29's release
-  ordering (schema first) applies to server releases too — the release
-  workflow's schema-availability gate must cover the server, and the first
-  server release carrying this feature needs a new schema release on PyPI
-  before it.
-- Bad: request/response shapes for publish and resolution remain
-  undesigned; this decision deliberately does not constrain them.
+- Bad: the server now depends on `scripticus-schema`, so D29's
+  schema-releases-first ordering applies to server releases too.
+- Bad: publish and resolution shapes remain undesigned; this decision
+  deliberately does not constrain them.
 
 ---
 
 ## D31. Index tables via `create_all` until the schema has released consumers
 
-**Decision**: The server creates its tables with SQLAlchemy's
-`create_all` (idempotent, run on first database use). No migration tool
-is adopted yet. Alembic (or equivalent) is adopted at the point a schema
-change would strand data someone cares about — in practice, once publish
-exists and real indices are populated.
+**Decision**: Tables are created with SQLAlchemy's `create_all`
+(idempotent, on first database use); no migration tool yet. Alembic (or
+equivalent) is adopted when a schema change would strand data someone
+cares about.
 
-**Reason**: Before publish exists, every index database is empty or
-seeded test data; a migration history for tables nobody has populated is
-ceremony without users, and it would slow the data model's most
-change-heavy period. The index is also re-derivable in principle (D21:
-everything is a projection of stored manifests), which lowers the cost of
-a drop-and-recreate during early development.
+**Reason**: A migration history for tables nobody has populated is
+ceremony without users, during the data model's most change-heavy
+period. The index is re-derivable from stored manifests anyway (D21),
+so early drop-and-recreate is cheap.
 
 **Consequences**:
 - Good: the data model can evolve freely while it is young.
 - Bad: a deployment that outlives a schema change must recreate its
-  database until migrations arrive; acceptable only while indices are
-  disposable, so this decision has an expiry date: revisit when publish
-  lands.
+  database until migrations arrive — this decision has an expiry date.
 
-**Revisited when publish landed (D32)**: `create_all` stays. Publish
-makes populated indices *possible*, not yet *precious* — there is no
-deployment whose data would survive a reinstall today, and the index
-remains re-derivable from stored manifests (D21). Alembic arrives with
-the first persistent deployment, and in any case before v1.0.0.
+**Revisited when publish landed (D32)**: `create_all` stays — populated
+indices are now possible but not yet precious. Alembic arrives with the
+first persistent deployment, and in any case before v1.0.0.
 
 ---
 
 ## D32. Publish: pass-through Gitea auth, derived-from-archive validation, format-variant rule
 
-> **Superseded in part by [D37](#d37-batch-publish-one-multipart-request-for-a-versions-whole-archive-set-atomic-across-the-batch).** `POST /packages` now accepts a batch of
-> one or more archives in a single request, validated and committed
-> atomically as a set, rather than exactly one archive per request. Everything
-> else below — pass-through auth, deriving identity from the archive, no
-> trusted client claims, the `library` rejection, and the format-variant rule
-> governing a later *separate* publish adding a format to an
-> already-published version — stands unchanged.
+> **Superseded in part by [D37](#d37-batch-publish-one-multipart-request-for-a-versions-whole-archive-set-atomic-across-the-batch).**
+> `POST /packages` now accepts a batch of one or more archives per
+> request, validated and committed atomically as a set. Everything else
+> below stands unchanged.
 
-**Decision**: Publish is `POST /packages`, a multipart upload of one
-package archive with the caller's own Gitea token in the `Authorization`
-header. The server derives everything — identity, platforms, language,
-dependencies, commands, the content hash — from the extracted archive;
-no client-supplied claim is trusted (D8). The token is used pass-through:
-the index service authenticates the caller against Gitea, checks publish
-permission live (the namespace is the caller or an organisation the
-caller belongs to — D24), and writes the blob to Gitea's generic package
-registry as the caller, holding no credentials of its own. Order of
-operations is the atomicity guarantee: validate everything, upload the
-blob, and commit the index record only after Gitea confirms; a commit
-failure after upload triggers a best-effort blob delete. Versions are
-immutable, with one carve-out — the format-variant rule: an existing
-version accepts an additional artifact only when the uploaded tree's
-hash equals the recorded one (D3 makes "same content" checkable) and the
-archive format is not yet present, which is exactly the shape D26's
-per-format packing produces. An uploaded archive's format must match the
-manifest's declared platforms (a `.zip` carries Windows targets), the
-`library` namespace is rejected (reserved, D5), and only the response
-model (`scripticus_schema.publish_api.PublishResult`) is contract — the
-request is the archive itself.
+**Decision**: Publish is `POST /packages`: a multipart archive upload
+with the caller's own Gitea token in the `Authorization` header. The
+server derives everything — identity, platforms, language, dependencies,
+commands, content hash — from the archive; no client claim is trusted
+(D8). The token is pass-through: publish permission is checked live
+against Gitea (D24) and the blob is stored as the caller; the service
+holds no credentials of its own. Ordering gives atomicity: validate,
+upload the blob, commit the index record only after Gitea confirms; a
+commit failure triggers a best-effort blob delete. Versions are
+immutable with one carve-out, the format-variant rule: an existing
+version accepts an additional artifact only when the tree hash matches
+the recorded one and the format is not yet present (exactly what D26's
+per-format packing produces). An archive's format must match the
+declared platforms, the `library` namespace is rejected (D5), and only
+the response model (`publish_api.PublishResult`) is contract.
 
-**Reason**: Pass-through auth is the smallest design that satisfies D24:
-permission truth stays in Gitea, checked live, and the index service
-cannot leak or misuse credentials it never holds. Deriving everything
-server-side removes the entire class of index-says-X-package-says-Y
-inconsistencies at the door (D21's authority rule applied to ingest).
-The blob-then-record ordering means the worst crash outcome is an
-orphaned blob in Gitea — invisible to resolution — rather than an index
-record pointing at nothing, which would break installs.
+**Reason**: Pass-through auth is the smallest design satisfying D24 —
+permission truth stays in Gitea, and the service cannot leak credentials
+it never holds. Deriving everything server-side kills
+index-says-X-package-says-Y inconsistency at the door (D21 applied to
+ingest). Blob-then-record ordering makes the worst crash an orphaned
+blob (invisible to resolution), never an index record pointing at
+nothing (broken installs).
 
 **Consequences**:
-- Good: no server-held credentials, no cached ACLs, no trusted client
-  claims; the failure mode hierarchy always degrades toward "publish
-  rejected", never "index corrupted".
-- Good: multi-format packages (D26) publish naturally as two requests
-  with no coordination.
-- Bad: a CI publisher currently needs a personal Gitea token; scoped
-  publish tokens remain deliberately undesigned.
+- Good: no server-held credentials, cached ACLs, or trusted client
+  claims; failures degrade toward "publish rejected", never "index
+  corrupted".
+- Bad: a CI publisher needs a personal Gitea token; scoped publish
+  tokens remain deliberately undesigned.
 - Bad: an orphaned blob is possible if the best-effort delete also
-  fails; harmless but needs manual cleanup in Gitea's UI.
+  fails; harmless, but manual cleanup in Gitea's UI.
 
 ---
 
 ## D33. Publish-time dependency rules: targets must exist; cycles rejected
 
-**Decision**: A declared package dependency must be a fully namespaced
-`namespace/name` reference to a package already present in the index
-with at least one version (the crates.io rule). Publish also rejects a
-version whose dependencies would make the publishing package reachable
-from itself in the package-level dependency graph (the union of every
-version's declared dependencies).
+**Decision**: A declared dependency must be a fully namespaced
+`namespace/name` already present in the index with at least one version
+(the crates.io rule). Publish also rejects a version that would make
+the publishing package reachable from itself in the package-level
+dependency graph (edges: the union of every version's declared
+dependencies).
 
-**Reason**: Requiring dependencies to exist catches typos and
-unpublished-yet mistakes at the moment the author can fix them, and it
-makes forward references — the raw material of cycles — impossible to
-mint accidentally. The cycle check is at package granularity because
-that is the granularity resolution installs at (single-version-per-
-closure): a cycle at package level is unresolvable regardless of which
-versions ranges later select. Union-of-versions edges deliberately
-over-approximate — a false rejection is a clear error at publish time,
-whereas a cycle admitted into the index surfaces as a confusing
-resolution failure for some innocent user later.
+**Reason**: The existence check catches typos while the author can fix
+them and makes forward references — the raw material of cycles —
+impossible to mint. Package-level granularity matches how resolution
+installs (single-version-per-closure); union-of-versions edges
+deliberately over-approximate, because a false rejection is a clear
+publish-time error while an admitted cycle is a confusing resolution
+failure for someone else later.
 
 **Consequences**:
 - Good: the resolver can assume an acyclic package graph.
 - Good: dangling dependency references cannot enter the index.
-- Bad: publishing mutually-referencing packages for the first time
-  requires an order (publish the dependency-free one first) — same as
-  crates.io, and inherent to the no-forward-references rule.
-- Bad: the union-graph over-approximation can reject a publish whose
-  actual version-level ranges would have been satisfiable; accepted as
-  the safer failure direction.
+- Bad: mutually-referencing packages must be published in dependency
+  order — same as crates.io, inherent to the rule.
 
 ---
 
 ## D34. `login` stores a Gitea token per remote, cargo-style; verification at login deferred
 
 **Decision**: `scripticus login` prompts for a Gitea personal access
-token (created by the user in Gitea's own settings, with package-write
-scope) and stores it verbatim in `~/.scripticus/credentials.toml`, keyed
-by the remote's index-service URL, with file permissions 0600. (D35
-pins down the exact command grammar — remotes are named, and login
-takes a remote name — and how a remote's URL is established.) No username is stored — Gitea accepts
-bare token auth, and publish simply replays the stored token in the
-`Authorization` header (D32's pass-through). The `SCRIPTICUS_TOKEN`
-environment variable, when set, overrides the stored token — the CI
-path. Credentials live in their own file, never in `config.toml`,
-because D12 makes `config.toml` org-distributable via git: tokens must
-not travel with it. Login stores the token without verifying it; a
-verification step — a small whoami endpoint on the index service that
-passes the token through to Gitea, in D24's live-check pattern — is
-planned follow-up work, recorded here so the gap reads as sequencing,
-not oversight.
+token (package-write scope, minted in Gitea) and stores it verbatim in
+`~/.scripticus/credentials.toml`, keyed by the remote's URL, permissions
+0600 (grammar and remote registration: D35). No username is stored —
+publish replays the bare token in the `Authorization` header (D32).
+`SCRIPTICUS_TOKEN` overrides the stored token (the CI path). Credentials
+never live in `config.toml`, which is org-distributable (D12). The token
+is stored unverified; a whoami-style verification endpoint (D24's
+live-check pattern) is planned follow-up — recorded here so the gap
+reads as sequencing, not oversight.
 
-**Reason**: This is the model every comparable tool converged on —
-`cargo login` (plaintext `credentials.toml`), `npm login` (`.npmrc`),
-`docker login` (unencrypted base64 in `config.json`). Plaintext on disk
-with tight permissions is the accepted precedent and honest about the
-threat model: an attacker who can read the file can read SSH keys too.
-The token is minted and scoped by Gitea, so D32's
-no-server-held-credentials property and the deliberate non-design of
-Scripticus-minted token scoping both survive untouched. Per-remote
-keying matches D10's multi-remote model. Deferring verification is safe
-because publish must handle stale or revoked tokens with an actionable
-"re-run `scripticus login`" error regardless — an unverified mistyped
-token degrades to that same clear failure at first publish.
+**Reason**: The model every comparable tool converged on (`cargo login`,
+`npm login`, `docker login`): plaintext with tight permissions is the
+accepted precedent, honest about the threat model — whoever can read the
+file can read SSH keys too. Deferring verification is safe because
+publish must handle stale tokens with an actionable "re-run login" error
+regardless.
 
 **Consequences**:
-- Good: D32 is unchanged — the index service still holds no credentials
-  of its own.
-- Good: CI publishing works today (a personal token in a CI secret,
-  supplied via `SCRIPTICUS_TOKEN`) without designing scoped tokens.
-- Good: the credentials/config file split makes leaking a token through
-  `config install` (D12) structurally impossible.
+- Good: D32 unchanged — the index service still holds no credentials.
+- Good: CI publishing works today via `SCRIPTICUS_TOKEN`, without
+  designing scoped tokens.
+- Good: the file split makes leaking a token through `config install`
+  structurally impossible.
 - Bad: a plaintext token on disk; OS-keyring integration is possible
   later but not designed.
-- Bad: until the verification follow-up lands, a mistyped token
-  surfaces at first publish rather than at login.
+- Bad: until verification lands, a mistyped token surfaces at first
+  publish rather than at login.
 
 ---
 
 ## D35. Named ordered remotes (`[[remotes]]`); publish defaults to the first; `login` doubles as first-time remote registration
 
-**Decision**: `config.toml`'s remotes list (D10) is a TOML array of
-tables, `[[remotes]]`, each entry `{ name, url }`. Array order remains
-search-path priority (D5) — this is unchanged, just given a concrete
-syntax. `scripticus publish` publishes to the first configured remote
-unless `--remote <name>` names another; there is no separate
-`default_remote` setting — list order alone decides, so there is only
-one place priority is expressed. Login takes a remote name:
-`scripticus login <name>` looks `<name>` up in the configured remotes
-and prompts for a token, storing it in `credentials.toml` (D34) keyed
-by that remote's URL. If `<name>` is not yet configured, this form
-fails with an error naming the two-argument alternative.
-`scripticus login <name> <url>` performs the same token capture but
-first adds `{name, url}` to `config.toml`'s remotes list (appended, so
-it takes the lowest search priority) if `<name>` is not already
-present — establishing the remote and authenticating in one command for
-a first-time login. If `<name>` already exists with a *different* URL,
-login refuses outright (no config or credential change) rather than
-silently repointing an existing remote; if it exists with the *same*
-URL, the URL argument is accepted as redundant confirmation and login
-proceeds as the one-argument form would.
+**Decision**: `config.toml` holds remotes as a TOML array of tables,
+`[[remotes]]`, each `{ name, url }`; array order remains D5's
+search-path priority. `publish` targets the first remote unless
+`--remote <name>` names another — no separate `default_remote` setting.
+`login <name>` looks the name up and prompts for a token (stored per
+D34, keyed by URL); an unknown name fails, naming the two-argument
+form. `login <name> <url>` also registers the remote (appended, lowest
+priority) when absent; an existing name with a *different* URL is
+refused outright — login never re-points a remote — while the same URL
+is accepted as redundant confirmation.
 
-**Reason**: an ordered array-of-tables is the only TOML shape that
-keeps D5's search-path priority expressible without a second ordering
-field — a bare `[remotes]` table of `name = url` pairs, or a
-`default: true` flag per entry, both need extra state to say what
-order-of-list already says for free. Defaulting publish to the first
-remote avoids a second "which one is default" knob duplicating that
-same list order; `--remote` covers every case where the first isn't
-wanted, at zero cost when there is only one remote configured (expected
-to be the common case). Making `login` double as first-time
-registration avoids designing a separate `remote add` command for what
-is normally a one-shot event — the name and URL are already in hand at
-the point of first authenticating — while the URL-conflict refusal
-stops a command named for authentication from ever silently moving a
-remote's URL out from under other configuration.
+**Reason**: An ordered array-of-tables is the only TOML shape that
+expresses priority without a second ordering field, and defaulting
+publish to the first entry reuses that order instead of adding a knob.
+Login doubling as registration avoids a separate `remote add` command
+for what is normally a one-shot event; the URL-conflict refusal stops an
+authentication command from silently moving a remote.
 
 **Consequences**:
-- Good: one mechanism (list order) does both jobs — D5 bare-name
-  search-path priority and publish's default target — so there is
-  nothing to keep in sync between two settings.
-- Good: onboarding a first remote is one command; no manual
-  `config.toml` edit required.
-- Good: URL-keyed credentials (D34) hold up even though remotes are now
-  named — renaming a remote in `config.toml` doesn't orphan its stored
-  token.
-- Bad: `login`'s two-argument form does two jobs (register a remote,
-  then authenticate to it), a mild surprise for a command whose name
-  suggests only the latter; mitigated by documenting it plainly.
-- Bad: because `config.toml` can be org-distributed (D12) and `login`
-  can append to it, a user's local file can drift from the
-  org-distributed baseline by picking up ad hoc remotes — accepted as
-  no different from any other local edit; `scripticus config install`
-  remains the way to reset to the org baseline.
+- Good: one mechanism (list order) does both jobs; nothing to keep in
+  sync.
+- Good: first-remote onboarding is one command, and URL-keyed
+  credentials (D34) survive remote renames.
+- Bad: the two-argument form does two jobs — a mild surprise, mitigated
+  by documenting it plainly.
+- Bad: `login` appending to an org-distributed `config.toml` (D12) lets
+  local files drift from the baseline; `config install` remains the
+  reset.
 
 ---
 
 ## D36. `publish <path-prefix>` targets pre-built archives by name-version; stop-on-first-failure by default
 
-> **Superseded in part by [D37](#d37-batch-publish-one-multipart-request-for-a-versions-whole-archive-set-atomic-across-the-batch).** With the server validating and
-> committing a batch atomically, the client sends every matched archive in
-> one request instead of one request per archive — there is no partial
-> success left to stop-before or continue-past, so `--continue-on-error`
-> and the stop-on-first-failure default described below no longer apply.
-> Everything else — the `<path-prefix>` argument shape, structured
-> filename matching, dash/underscore normalisation, and `--remote` — stands
+> **Superseded in part by [D37](#d37-batch-publish-one-multipart-request-for-a-versions-whole-archive-set-atomic-across-the-batch).**
+> With batch-atomic publish there is no partial success left, so the
+> stop-on-first-failure default and `--continue-on-error` below no
+> longer apply. The `<path-prefix>` argument, structured filename
+> matching, dash/underscore normalisation, and `--remote` stand
 > unchanged.
 
-**Decision**: `publish` does not invoke `pack`; the two are separate
-steps. `publish` takes one positional argument, a path whose final
-component is a `<name>-<version>` prefix — e.g.
-`scripticus publish some/dir/my-cool-script-0.1.2` — and it operates on
-every archive in that directory whose D26 wheel-style filename
-(`<name>-<version>-<platform-tag>-<lang>.<ext>`, name/version dashes
-normalised to underscores per D26) has a `name` field and `version`
-field matching exactly. Matching parses the filename into its
-structured fields and compares those, not a raw string prefix — a raw
-`startswith()` would wrongly match `my-cool-script-0.1.20` against a
-`...-0.1.2` prefix, or misattribute a hyphenated pre-release version
-into the wrong field. The path argument's name component is given in
-its canonical dashed form (matching the manifest and scaffold, e.g.
-`my-cool-script`); the matcher normalises both sides (dash and
-underscore treated as equivalent) before comparing, so the user never
-has to type or think about the filename's underscore mangling. Archives are published in a deterministic order
-(sorted by filename). By default, the first archive to fail aborts the
-remaining ones and the whole command exits non-zero, even if an earlier
-archive in the set already succeeded — `--continue-on-error` attempts
-every matched archive regardless of earlier failures, reports every
-outcome, and still exits non-zero if any failed. Failure output names
-which archives succeeded and which didn't, and points at re-running
-`publish` to retry.
+**Decision**: `publish` never invokes `pack`. It takes one positional
+argument — a path whose final component is a `<name>-<version>` prefix
+(e.g. `some/dir/my-cool-script-0.1.2`) — and operates on every archive
+in that directory whose D26 filename carries exactly those name and
+version fields. Matching is structural, not `startswith()` (which would
+match `0.1.20` against `0.1.2`), with dash and underscore equivalent so
+the canonical dashed name matches the filename's mangled form. Archives
+publish in sorted order; the first failure aborts the rest and the
+command exits non-zero; `--continue-on-error` attempts every archive
+and reports each outcome.
 
-**Reason**: Requiring `pack` to run first keeps each command doing one
-job and matches D26's model of archives as the independent artifacts
-publish operates on, rather than publish reaching back into source
-directories and manifests itself. The `<name>-<version>` path argument
-reuses exactly the identifier `pack` already prints/creates, so nothing
-new needs to be memorised or typed by hand. Stop-on-first-failure is
-the closest a client can get to "one fails, they all fail": D16 makes
-published versions immutable with no hard delete, so there is no way to
-actually undo an archive that already landed in the index — the
-command can only stop making things worse and refuse to report success.
-That earlier success is not wasted, though: D32's format-variant rule
-(same content hash, format not yet present) makes a bare re-run of
-`publish` safe and idempotent, silently skipping the already-published
-archive and retrying only the missing one — the client's job is just to
-say that clearly. A boolean `--continue-on-error` was chosen over an
-enum like D18's `--force=` because there are only two behaviours here
-(stop vs. don't); D18's enum shape earns its indirection from having
-several forward-relevant modes, which doesn't apply here.
+**Reason**: Separate pack and publish steps keep each command doing one
+job, and the path argument reuses the identifier `pack` already prints.
+Stop-on-first-failure was the closest a per-archive loop could get to
+atomicity — D16's immutability means an already-published archive
+cannot be undone — with D32's format-variant rule making a plain re-run
+the idempotent recovery.
 
 **Consequences**:
-- Good: `publish`'s only input concern is "which archives", entirely
-  decoupled from how they were produced — consistent with D32's
-  per-archive independence and the format-variant rule's existence.
-- Good: the default behaviour never reports "published" when part of a
-  multi-format set failed, so a user cannot walk away thinking a
-  package is fully available when it isn't.
-- Good: recovery is a plain re-run, no new command or state needed,
-  because D32 already made retrying the missing format idempotent.
-- Bad: "stop-on-first-failure" is not true atomicity and cannot be —
-  documentation must be explicit that an already-succeeded archive
-  stays published even when the command as a whole reports failure.
-- Bad: filename-based matching depends on D26's naming convention
-  staying stable; a future change to that scheme would need this
-  matcher updated in step.
+- Good: publish's only input concern is "which archives", decoupled from
+  how they were produced.
+- Good: recovery from partial failure is a plain re-run.
+- Bad: stop-on-first-failure is not atomicity — an already-succeeded
+  archive stays published (the gap D37 later closed).
+- Bad: filename matching depends on D26's naming scheme staying stable.
 
 ---
 
 ## D37. Batch publish: one multipart request for a version's whole archive set, atomic across the batch
 
-**Decision**: `POST /packages` accepts a multipart request carrying one
-or more archives — one file part each — rather than exactly one (D32).
-The server stages and validates every archive in the batch (manifest
-load, platform/format-group match, D33's dependency-target and cycle
-checks) before writing anything to Gitea. D33's checks run once per
-batch rather than once per archive: the format-variant rule already
-requires every archive in a version's set to share the same content
-hash, which guarantees an identical manifest across the batch, so there
-is only one dependency graph to check. If every archive validates, the
-server uploads each blob to Gitea and only then commits the index
-record(s); if any archive in the batch fails validation, the whole
-request is rejected — no blob is uploaded, nothing is committed — with
-a response identifying which archive(s) failed and why. On success,
-`PublishResult` reports the full batch: `artifact` becomes `artifacts`,
-a list, since success means every archive in the request published
-together, never a subset. Client-side, `scripticus publish
-<path-prefix>` (D36) sends every archive it discovers matching the
-path-prefix in this one batched request instead of looping over them
-individually; the command reports the whole batch published or the
-whole batch rejected, with nothing in between — D36's
-stop-on-first-failure default and `--continue-on-error` flag are
-dropped, since there is no partial success left to stop before or
-continue past. What is unchanged from D32: pass-through Gitea auth,
-deriving everything from the archive with no trusted client claims, the
-`library` namespace rejection, format-must-match-declared-platforms,
-and the format-variant rule governing a *later, separate* publish that
-adds a format to an already-published version — that remains a batch of
-size one, validated against already-committed index state exactly as
-D32 specified, because those archives were not built and submitted
-together.
+**Decision**: `POST /packages` accepts one *or more* archives per
+request, revising D32's exactly-one. The server stages and validates
+every archive — batch cohesion (identical content hash, no duplicate
+format) plus D33's checks, once per batch — before any Gitea write;
+blobs upload only after everything validates; the index record commits
+only after every upload confirms; failure anywhere rejects the whole
+batch, best-effort deleting any blob already uploaded.
+`PublishResult.artifact` becomes `artifacts`, a list. Client-side,
+`publish <path-prefix>` (D36) sends every matched archive in this one
+request, dropping stop-on-first-failure and `--continue-on-error`. A
+later publish adding a format to an existing version remains a batch of
+one, governed by D32's format-variant rule unchanged.
 
-**Reason**: The server already stages one archive in a
-`tempfile.TemporaryDirectory` to validate it before touching Gitea (the
-existing `publish.py` implementation); extending that to a batch of N
-archives within one request's lifetime is a small generalisation of
-already-built machinery, not new architecture — no persistent staging
-directory, no session or multi-request transaction protocol, nothing
-that outlives the request. Real atomicity across a version's format set
-removes a gap D36 could only manage, not close: a client-side
-stop-on-first-failure loop could never undo an archive that had already
-landed via an earlier successful request, because D16 makes published
-versions immutable with no hard delete — the client could refuse to
-*claim* success but could not prevent the partial state existing.
-Moving the atomicity boundary to "everything the client meant to
-publish together" removes that gap at its source rather than
-papering over it with careful failure messages.
+**Reason**: The server already staged one archive in a temp directory
+before touching Gitea; N archives inside one request is a small
+generalisation, not new architecture. It closes a gap D36 could only
+manage: a client-side loop can never undo an archive that already
+landed (D16 — no hard delete), so moving the atomicity boundary to
+"everything the client meant to publish together" removes the partial
+state at its source.
 
 **Consequences**:
-- Good: a multi-format publish is either fully live or not live at
-  all — no more "one variant published, the other didn't, re-run to
-  finish" state for a client to explain to a user.
-- Good: D33's checks move from "only run for the first archive of a new
-  version" (today's incidental behaviour, since `existing is not None`
-  skips them for a second, separate archive) to "run once per batch,
-  deliberately" — the same one-check-per-manifest shape, now the
-  designed behaviour rather than a side effect of request ordering.
-- Good: D36 sheds an entire flag and a whole failure-reporting
-  design (`--continue-on-error`, stop-on-first-failure ordering); the
-  client's job shrinks to "find the matching archives, send them all,
-  report the one outcome."
-- Bad: this revises a shipped, already-implemented endpoint
-  (`POST /packages` in `publish.py`) and its response schema
-  (`PublishResult` in `publish_api.py`), including the existing test
-  suite (`test_publish.py`) — not a greenfield addition.
-- Bad: larger request bodies and no partial-progress salvage on a
-  flaky connection — a mid-upload network failure now costs the whole
-  batch, not just the one format still uploading; accepted given these
-  are small script archives.
-- Bad: the API surface is slightly more complex on both sides (list of
-  files in, list of artifacts or one batch-level error out) than the
-  single-file/single-artifact shape it replaces.
+- Good: a multi-format publish is fully live or not live at all.
+- Good: D33's checks become deliberately once-per-batch rather than an
+  accident of request ordering.
+- Good: D36 sheds a flag and a failure-reporting design; the client's
+  job shrinks to "match, send, report one outcome".
+- Bad: revises a shipped endpoint, response schema, and test suite —
+  not greenfield.
+- Bad: a mid-upload network failure costs the whole batch; accepted for
+  small script archives.
 
 ---
 
