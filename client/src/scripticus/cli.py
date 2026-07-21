@@ -8,18 +8,30 @@ from rich.console import Console
 from rich.markup import escape
 
 from scripticus import __version__, scaffold
-from scripticus.config import ConfigError, load_remotes, save_remotes
+from scripticus.config import ConfigError, Tools, load_remotes, load_tools, save_remotes
 from scripticus.credentials import CredentialsError, resolve_token, set_token
 from scripticus.init import ensure_persistent_path, ensure_skeleton, on_path
 from scripticus.install import (
     InstallError,
     Transaction,
     apply_install,
+    current_os,
     prepare_install,
     read_lockfile,
     scripticus_home,
 )
 from scripticus.login import LoginError, prepare_login
+from scripticus.remote_install import (
+    RemoteInstallError,
+    RemotePlan,
+    apply_remote,
+    build_plan,
+    installed_closure,
+    parse_target,
+    resolve_root,
+    stage_downloads,
+)
+from scripticus.tools import ToolError, install_missing_required
 from scripticus.whoami import WhoAmIError, verify_token
 from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
@@ -221,13 +233,28 @@ def _print_transaction(transaction: Transaction) -> None:
 
 @app.command()
 def install(
-    file: Path = typer.Option(
-        ...,
+    package: Optional[str] = typer.Argument(
+        None,
+        help="Package to install from a remote, as 'namespace/name' or"
+        " 'namespace/name@<version>' (a full name, not bare — D46).",
+    ),
+    file: Optional[Path] = typer.Option(
+        None,
         "--file",
         "-f",
         exists=True,
         dir_okay=False,
-        help="Install from a local package archive (required until remote installs land).",
+        help="Install from a local package archive instead of a remote.",
+    ),
+    remote: Optional[str] = typer.Option(
+        None,
+        "--remote",
+        help="Force a specific remote (default: the first one hosting the package).",
+    ),
+    skip_tools: bool = typer.Option(
+        False,
+        "--skip-tools",
+        help="Skip the system-tool check and installation entirely.",
     ),
     yes: bool = typer.Option(
         False,
@@ -243,10 +270,24 @@ def install(
         " all: auto-accept everything, reporting each overwritten shim.",
     ),
 ) -> None:
-    """Install a package from a local archive."""
-    home = scripticus_home()
-    mode = force.value if force else ("no-conflicts" if yes else None)
+    """Install a package from a remote (namespace/name[@version]) or a local
+    archive (-f)."""
+    if (package is None) == (file is None):
+        console.print(
+            "[red]error:[/red] give a package name to install from a remote,"
+            " or -f <archive> to install a local file (not both)"
+        )
+        raise typer.Exit(code=1)
 
+    mode = force.value if force else ("no-conflicts" if yes else None)
+    if file is not None:
+        _install_local(file, mode)
+    else:
+        _install_remote(package, remote, skip_tools, mode)
+
+
+def _install_local(file: Path, mode: Optional[str]) -> None:
+    home = scripticus_home()
     try:
         transaction = prepare_install(file, home)
     except (InstallError, ManifestError) as exc:
@@ -284,6 +325,150 @@ def install(
                 console.print(f"  {conflict.shim}  (was {conflict.owner})")
     finally:
         shutil.rmtree(transaction.staging, ignore_errors=True)
+
+
+def _print_remote_transaction(plan: RemotePlan, skip_tools: bool, tools_config: Tools) -> None:
+    console.print(
+        f"Resolving [bold]{plan.result.packages[-1].namespace}/"
+        f"{plan.result.packages[-1].name}[/bold] from {plan.remote.name}"
+        f" ({plan.remote.url})"
+    )
+
+    installs = [a for a in plan.actions if a.action == "install"]
+    changes = [a for a in plan.actions if a.action != "install"]
+    if installs:
+        console.print("\nNew packages:")
+        for action in installs:
+            resolved = action.resolved
+            commands = ", ".join(sorted(resolved.commands)) or "—"
+            console.print(
+                f"  {resolved.namespace}/{resolved.name}  {resolved.version}"
+                f"  (commands: {commands})"
+            )
+    if changes:
+        console.print("\nVersion changes:")
+        for action in changes:
+            resolved = action.resolved
+            if action.action == "reinstall":
+                console.print(
+                    f"  {resolved.namespace}/{resolved.name}  {resolved.version}  (reinstall)"
+                )
+            else:
+                marker = "  (downgrade!)" if action.action == "downgrade" else ""
+                console.print(
+                    f"  {resolved.namespace}/{resolved.name}"
+                    f"  {action.installed_version} -> {resolved.version}{marker}"
+                )
+
+    console.print()
+    if skip_tools:
+        console.print("System tools: skipped (--skip-tools)")
+    else:
+        _print_remote_tools(plan, tools_config)
+
+    if plan.conflicts:
+        console.print("\nShim conflicts:")
+        for conflict in plan.conflicts:
+            console.print(
+                f"  {conflict.shim}  currently owned by {conflict.owner}"
+                " — will be overwritten"
+            )
+
+
+def _print_remote_tools(plan: RemotePlan, tools_config: Tools) -> None:
+    if plan.required_tools:
+        missing = plan.missing_required
+        if not missing:
+            status = "[found]"
+        elif tools_config.install is not None:
+            status = f"[will install: {', '.join(missing)}]"
+        else:
+            status = f"[NOT FOUND: {', '.join(missing)} — no installer configured]"
+        names = ", ".join(t.name for t in plan.required_tools)
+        console.print(f"Required system tools: {names}        {status}")
+    if plan.optional_tools:
+        missing = [t.name for t in plan.optional_tools if not t.found]
+        status = (
+            f"[NOT FOUND: {', '.join(missing)} — some features degraded]"
+            if missing
+            else "[found]"
+        )
+        names = ", ".join(t.name for t in plan.optional_tools)
+        console.print(f"Optional system tools: {names}        {status}")
+
+
+def _install_remote(
+    target: str, remote_name: Optional[str], skip_tools: bool, mode: Optional[str]
+) -> None:
+    home = scripticus_home()
+    try:
+        root, spec = parse_target(target)
+        remotes = load_remotes(home)
+        tools_config = load_tools(home)
+        lock = read_lockfile(home)
+        chosen, result = resolve_root(
+            remotes, remote_name, root, spec, current_os(), installed_closure(lock)
+        )
+        token = resolve_token(chosen, home)
+        plan = build_plan(chosen, token, result, lock)
+    except (RemoteInstallError, ConfigError, CredentialsError, ManifestError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    tool_work = (not skip_tools) and bool(plan.missing_required)
+    if not plan.actions and not tool_work:
+        console.print(f"{root} {plan.root_version} is already installed — nothing to do")
+        return
+
+    # Pre-flight refusal (D44): required tools missing and no installer means
+    # the install cannot complete — fail before the prompt, not after.
+    if not skip_tools and plan.missing_required and tools_config.install is None:
+        listed = ", ".join(plan.missing_required)
+        console.print(
+            f"[red]error:[/red] missing required system tools: {listed}"
+            " — configure [tools] install in config.toml, install them"
+            " yourself, or re-run with --skip-tools"
+        )
+        raise typer.Exit(code=1)
+
+    _print_remote_transaction(plan, skip_tools, tools_config)
+
+    if mode is None:
+        console.print()
+        if not typer.confirm("Proceed?"):
+            console.print("Aborted — nothing installed.")
+            raise typer.Exit(code=1)
+    elif mode == "no-conflicts" and plan.conflicts:
+        console.print(
+            "\n[red]error:[/red] aborting: the transaction would overwrite existing"
+            " command shims (nothing installed; use --force all to overwrite)"
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        staging_root, staged = stage_downloads(plan)
+    except RemoteInstallError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        if not skip_tools:
+            install_missing_required(plan.missing_required, tools_config)
+        apply_remote(plan, staged, home)
+    except ToolError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
+
+    console.print(f"\nInstalled from [bold]{chosen.name}[/bold]:")
+    for action in plan.actions:
+        resolved = action.resolved
+        console.print(f"  {resolved.namespace}/{resolved.name} {resolved.version}")
+    if plan.conflicts:
+        console.print("Overwritten shims:")
+        for conflict in plan.conflicts:
+            console.print(f"  {conflict.shim}  (was {conflict.owner})")
 
 
 @app.command()

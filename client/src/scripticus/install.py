@@ -278,21 +278,35 @@ def _write_delegating_shim(bin_dir: Path, shim_name: str, target_name: str) -> N
         shim.chmod(0o755)
 
 
-def apply_install(transaction: Transaction, home: Path) -> None:
-    """Install the staged package tree: files, shims, lockfile."""
-    package = transaction.manifest.package
-    namespace, name, version = package.namespace, package.name, package.version
+def install_into_lock(
+    home: Path,
+    bin_dir: Path,
+    package_root: Path,
+    language: str,
+    namespace: str,
+    name: str,
+    version: str,
+    content_hash: str,
+    commands: dict[str, str],
+    direct: bool,
+    provenance: dict,
+    dependencies: dict,
+    lock: dict,
+) -> None:
+    """Install one staged package tree into place and register it in ``lock``
+    (mutated in place; the caller reads and writes the lockfile). Copies the
+    tree, (re)writes the three-tier shims, applies last-install-wins to the
+    convenience tiers, and replaces this package's lockfile entry.
 
-    bin_dir = home / "bin"
-    bin_dir.mkdir(parents=True, exist_ok=True)
-
+    Shared by the local (`install -f`) and remote install paths, so both get
+    identical on-disk and lockfile behaviour.
+    """
     install_dir = home / "pkgs" / namespace / name / version
     if install_dir.exists():
         shutil.rmtree(install_dir)
     install_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(transaction.package_root, install_dir)
+    shutil.copytree(package_root, install_dir)
 
-    lock = read_lockfile(home)
     previous = _find_entry(lock, namespace, name)
     if previous is not None:
         # Remove the previous version's tree and any shims (fully-qualified
@@ -301,40 +315,65 @@ def apply_install(transaction: Transaction, home: Path) -> None:
         if previous["version"] != version:
             shutil.rmtree(home / "pkgs" / namespace / name / previous["version"], ignore_errors=True)
         for command in previous["commands"]:
-            if command not in transaction.commands:
+            if command not in commands:
                 _shim_path(bin_dir, fq_shim(namespace, name, command)).unlink(missing_ok=True)
         for shim in previous.get("shims", []):
-            if shim_command(shim) not in transaction.commands:
+            if shim_command(shim) not in commands:
                 _shim_path(bin_dir, shim).unlink(missing_ok=True)
         lock["packages"].remove(previous)
 
-    for command, script in transaction.commands.items():
+    for command, script in commands.items():
         target = fq_shim(namespace, name, command)
-        _write_shim(bin_dir, target, install_dir / script, package.language)
+        _write_shim(bin_dir, target, install_dir / script, language)
         for shim in (command, ns_shim(namespace, command)):
             _write_delegating_shim(bin_dir, shim, target)
 
-    # Convenience shims are last-install-wins (D11/D38): any contested one
-    # now belongs to this package, so drop it from the previous owner.
-    conflicted = {conflict.shim for conflict in transaction.conflicts}
+    # Convenience shims are last-install-wins (D11/D38): every one this
+    # package now owns is taken from whichever other entry previously held it
+    # (covers both an outside conflict and an intra-batch collision).
+    owned = set(convenience_shims(namespace, commands))
     for entry in lock["packages"]:
-        entry["shims"] = [s for s in entry.get("shims", []) if s not in conflicted]
+        entry["shims"] = [s for s in entry.get("shims", []) if s not in owned]
 
     lock["packages"].append(
         {
             "namespace": namespace,
             "name": name,
             "version": version,
-            "language": package.language,
-            "content_hash": transaction.content_hash,
-            "commands": sorted(transaction.commands),
-            "shims": convenience_shims(namespace, transaction.commands),
-            "direct": True,
-            "provenance": {"type": "local", "source": str(transaction.source.resolve())},
-            # Always empty until the resolver exists: resolve_dependencies
-            # rejects any package that declares dependencies.
-            "dependencies": {},
+            "language": language,
+            "content_hash": content_hash,
+            "commands": sorted(commands),
+            "shims": sorted(owned),
+            "direct": direct,
+            "provenance": provenance,
+            "dependencies": dependencies,
         }
     )
     lock["packages"].sort(key=lambda e: (e["namespace"], e["name"]))
+
+
+def apply_install(transaction: Transaction, home: Path) -> None:
+    """Install the staged package tree: files, shims, lockfile."""
+    package = transaction.manifest.package
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    lock = read_lockfile(home)
+    install_into_lock(
+        home,
+        bin_dir,
+        transaction.package_root,
+        package.language,
+        package.namespace,
+        package.name,
+        package.version,
+        transaction.content_hash,
+        transaction.commands,
+        direct=True,
+        provenance={"type": "local", "source": str(transaction.source.resolve())},
+        # Local installs are dependency-free: resolve_dependencies rejects any
+        # package that declares package dependencies (D20/D42).
+        dependencies={},
+        lock=lock,
+    )
     write_lockfile(home, lock)

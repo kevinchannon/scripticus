@@ -58,7 +58,7 @@ control rather than cryptographic assurance.
 
 - [x] Python service (FastAPI) fronting a Gitea instance used as the
       storage/auth/namespace substrate (generic package registry).
-- [ ] Owns the package index: manifest-aware search (name, tags, platform,
+- [x] Owns the package index: manifest-aware search (name, tags, platform,
       language), version listing, and resolution.
 - [x] Batch atomic publish: the client sends one or more archives — a
       version's whole format-group set — plus manifests to the index
@@ -67,24 +67,24 @@ control rather than cryptographic assurance.
       commits the index record(s) only after Gitea confirms every write. A
       failure anywhere in the batch rejects the whole request — nothing
       uploaded, nothing committed (D37). Duplicate versions rejected.
-- [ ] Server-side dependency resolution (designed, D42): `POST /resolve`
+- [x] Server-side dependency resolution (D42): `POST /resolve`
       takes a root package plus the client's platform and installed
       closure, and returns the full resolved transitive closure as a flat
       list of (package, version, content hash, download pointer,
-      direct/transitive) plus aggregated tool requirements.
-      Single-version-per-closure (no side-by-side versions); the installed
-      closure enters as hard constraints so resolution neither breaks nor
-      needlessly bumps installed packages. An unsatisfiable window is a
-      hard error.
+      direct/transitive, command map — D47) plus aggregated tool
+      requirements. Single-version-per-closure (no side-by-side versions);
+      the installed closure enters as hard constraints so resolution
+      neither breaks nor needlessly bumps installed packages. An
+      unsatisfiable window is a hard error.
 - [x] Cycle detection at publish time.
 - [x] Token-verification endpoint: `GET /whoami`, a whoami-style
       pass-through of the caller's Gitea token, so the client can verify a
       token at `login` time rather than at first publish (D40, follow-up
       to D34). `login` now calls it to verify before storing (D41).
-- [ ] Platform-aware resolution (designed, D42): the client's platform is
+- [x] Platform-aware resolution (D42): the client's platform is
       an input to `/resolve` so the correct artifact variant is selected
       automatically.
-- [ ] Tool-dependency resolution (designed, D43/D44): the server
+- [x] Tool-dependency resolution (D43/D44): the server
       aggregates each tool requirement over the closure; the client checks
       PATH presence and installs the missing set by shelling out to an
       operator-configured `[tools] install` command (no package-manager
@@ -95,10 +95,11 @@ control rather than cryptographic assurance.
       `--skip-tools` escape. v1 is name-only;
       versioned tool windows are a fast-follow needing a manifest/schema
       extension.
-- [ ] Read path (designed, D42): `/resolve` returns metadata plus direct
-      Gitea download pointers; the client fetches blobs from Gitea itself
-      with its stored token, staging and hash-verifying all blobs before
-      committing (no companion download endpoint, per D9).
+- [x] Read path (D42): `/resolve` returns metadata plus direct
+      Gitea download pointers (relative to the front URL, D45); the client
+      fetches blobs from Gitea itself with its stored token, staging and
+      hash-verifying all blobs before committing (no companion download
+      endpoint, per D9).
 - [ ] npm-style yank: yanked versions are excluded from `latest`/search
       resolution but remain fetchable when directly pinned (including via
       lockfiles). No hard delete.
@@ -132,7 +133,7 @@ docs in the client README):
 | `use <pkg> <command>`       | Re-point a command shim at an installed package        | Implemented |
 | `login <name> [<url>]`      | Store a Gitea token; register a remote first time      | Implemented |
 | `publish <path-prefix>`     | Publish packed archives to a remote, as one batch      | Implemented |
-| `install <ns/name>[@ver]`   | Install from a remote, with dependency resolution      | Planned     |
+| `install <ns/name>[@ver]`   | Install from a remote, with dependency resolution      | Implemented |
 | `search <query>`            | Search the index                                       | Planned     |
 | `update [<pkg>]`            | Update installed remote-provenance packages            | Planned     |
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
@@ -146,12 +147,13 @@ installed command directly invocable by its namespaced names instead.
       package directory with wheel-style filename tags — one archive per
       format the declared targets call for (`.tar.gz` for POSIX/macOS,
       `.zip` for Windows; both when both are targeted, per D26).
-- [ ] `install <ns/name>[@version]` from a remote (D46): resolves against
+- [x] `install <ns/name>[@version]` from a remote (D46): resolves against
       the configured remotes in priority order (first hosting the root; the
       closure is single-remote by D33), `--remote` to force one. Calls
       `/resolve` with the installed closure, plans (new installs, version
       changes, shim + tool conflicts) via the D17 transaction flow, then
-      fetches/verifies/installs (D42/D43/D45). v1 requires the
+      fetches/verifies/installs (D42/D43/D45); tools install first, then all
+      blobs stage-and-verify before any unpack. v1 requires the
       fully-namespaced form; bare-name resolution via a user-configurable
       namespace search path (Homebrew-tap-style, D5) is deferred — bare
       names are purely a client-side convenience over always-namespaced
@@ -190,9 +192,11 @@ installed command directly invocable by its namespaced names instead.
       today; the fully-qualified tier never collides, so every installed
       command is always invocable — which is why there is no `run`
       command.
-- [ ] Local install-state file (lockfile-style): installed packages, resolved
+- [x] Local install-state file (lockfile-style): installed packages, resolved
       versions and hashes, full resolved closure with direct-vs-transitive
-      marking, and provenance.
+      marking, and provenance (remote vs local `-f`). A remote install
+      records the whole resolved closure; later resolves send the
+      remote-provenance entries as installed identities (D42).
 - [x] Client config: remotes list as an ordered `[[remotes]]` array of
       `{ name, url }` tables (doubling as the namespace search path; order
       is also `publish`'s default-remote priority, D35) and install state.

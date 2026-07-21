@@ -88,6 +88,15 @@ Non-interactive use:
   would overwrite an existing command shim.
 - `--force=all`: accept everything, including shim overwrites. Every
   overwritten shim is reported in the output.
+- `--skip-tools`: skip the system-tool check and installation entirely.
+
+Required system tools missing from your `PATH` are installed *before* any
+package file or shim is written, by running the command your machine's
+`[tools]` configuration provides (see [Configuration](#configuration)). If a
+required tool is missing and no installer is configured, the install aborts
+listing the tools — install them yourself, configure `[tools] install`, or
+re-run with `--skip-tools`. Optional tools are only reported, never
+installed.
 
 Install from a local archive (no registry involved):
 
@@ -368,6 +377,27 @@ Client configuration lives in `~/.scripticus/`:
   name = "public"
   url = "https://scripticus.example.org"
   ```
+
+  An optional `[tools]` table tells Scripticus how to install missing
+  *required* system tools. Scripticus encodes no package-manager logic — you
+  provide the command, and the missing tool names are substituted into a
+  `{packages}` placeholder (shell-quoted; appended if the placeholder is
+  absent). It runs once through your shell, inheriting the environment, so
+  proxies/mirrors/credentials come from the machine environment rather than
+  this (org-distributable) file:
+
+  ```toml
+  [tools]
+  install = "apt-get install -y {packages}"   # your machine's package manager
+  escalate = "sudo"                            # optional; elevates only this command
+  ```
+
+  `escalate` is prepended to the tool command alone — Scripticus itself never
+  needs privilege (its state is entirely under `~/.scripticus`). Leave it out
+  when already root or on Windows-as-admin. With no `[tools] install`
+  configured, Scripticus never invokes a package manager: missing required
+  tools abort the install (with the `--skip-tools` escape). Tool
+  *satisfiability* in v1 is PATH presence only.
 
 - `credentials.toml` — one Gitea access token per remote, keyed by URL and
   registered with `scripticus login`. Kept separate from `config.toml` so
