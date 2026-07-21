@@ -18,10 +18,14 @@ resolver stub until remote install brings real resolution), `uninstall`
 replacement picker for commands other installed packages still provide, D28
 — `uninstall.py`), and `use` (manually re-point a command shim at an
 installed package, D11 — `use.py`, sharing the uninstall picker's re-point
-primitive), and `login` (token capture per remote, doubling as first-time
+primitive), `login` (token capture per remote, doubling as first-time
 remote registration, D34/D35 — decision logic in `login.py`, the
 `[[remotes]]` config in `config.py`, the 0600 URL-keyed credential store
-in `credentials.py`). The contract code lives in `schema/` (`scripticus_schema`):
+in `credentials.py`), and `publish` (D36/D37 — `publish.py`: structural
+name-version matching of pre-built archives, one batched multipart POST
+to the first-listed or `--remote`-named remote, token via
+`SCRIPTICUS_TOKEN` or the credential store, 401 mapped to an actionable
+re-login message). The contract code lives in `schema/` (`scripticus_schema`):
 the Pydantic manifest model and validation (`manifest.py`), the D3/D27
 content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
 models for the read API (`index_api.py`, D30) and publish response

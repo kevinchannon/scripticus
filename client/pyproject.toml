@@ -8,6 +8,7 @@ license = "MIT"
 dependencies = [
     "typer>=0.16",
     "rich>=13",
+    "httpx>=0.27",
     # Same-minor bound (D29): the schema is internal API, an older client
     # must not pick up a future schema release that changed it.
     "scripticus-schema>=0.1.0,<0.2.0",

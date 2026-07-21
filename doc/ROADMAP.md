@@ -133,7 +133,7 @@ control rather than cryptographic assurance.
       `{ name, url }` tables (doubling as the namespace search path; order
       is also `publish`'s default-remote priority, D35) and install state.
       No Conan-style profiles, no separate `default_remote` setting.
-- [ ] `publish <path-prefix>` (e.g. `some/dir/my-cool-script-0.1.2`):
+- [x] `publish <path-prefix>` (e.g. `some/dir/my-cool-script-0.1.2`):
       publish every pre-built archive at that location whose D26
       wheel-style filename's name/version fields match exactly (not a raw
       string prefix; dash/underscore normalised so the canonical dashed

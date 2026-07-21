@@ -9,7 +9,7 @@ from rich.markup import escape
 
 from scripticus import __version__, scaffold
 from scripticus.config import ConfigError, load_remotes, save_remotes
-from scripticus.credentials import set_token
+from scripticus.credentials import CredentialsError, resolve_token, set_token
 from scripticus.install import (
     InstallError,
     Transaction,
@@ -21,6 +21,12 @@ from scripticus.install import (
 from scripticus.login import LoginError, prepare_login
 from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
+from scripticus.publish import (
+    PublishError,
+    matching_archives,
+    publish_archives,
+    resolve_remote,
+)
 from scripticus.uninstall import (
     Candidate,
     UninstallError,
@@ -375,6 +381,37 @@ def login(
     token = typer.prompt("Token", hide_input=True)
     set_token(home, target.url, token)
     console.print(f"Logged in to [bold]{target.name}[/bold] ({target.url})")
+
+
+@app.command()
+def publish(
+    path_prefix: Path = typer.Argument(
+        ...,
+        help="Path whose last component is the archives' <name>-<version>"
+        " prefix, e.g. builds/my-cool-script-0.1.2.",
+    ),
+    remote: Optional[str] = typer.Option(
+        None,
+        "--remote",
+        help="Named remote to publish to (default: the first in config.toml).",
+    ),
+) -> None:
+    """Publish a version's pre-built archives to a remote, as one batch."""
+    home = scripticus_home()
+
+    try:
+        remotes = load_remotes(home)
+        target = resolve_remote(remote, remotes)
+        token = resolve_token(target, home)
+        archives = matching_archives(path_prefix)
+        result = publish_archives(target, token, archives)
+    except (ConfigError, CredentialsError, PublishError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"Published [bold]{result.name}[/bold] {result.version}:")
+    for artifact in result.artifacts:
+        console.print(f"  {artifact.filename}")
 
 
 @app.command()
