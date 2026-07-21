@@ -22,6 +22,7 @@ from scripticus_server.gitea import (
     get_gitea_client,
 )
 from scripticus_server.publish import router as publish_router
+from scripticus_server.resolve import router as resolve_router
 
 app = FastAPI(
     title="Scripticus index service",
@@ -32,6 +33,7 @@ app = FastAPI(
     version=__version__,
 )
 app.include_router(publish_router)
+app.include_router(resolve_router)
 
 
 # Local to the server on purpose: a liveness shape is not part of the

@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Current state
 
 The write path is implemented end-to-end (pack → login → publish →
-index + Gitea); the main gaps are the remote read path in the client
-(search/install) and resolution. The repo is a **uv workspace**
+index + Gitea) and the server-side resolver (`POST /resolve`, D42/D43) is
+in; the main gap is now the client's remote read path — `search` and the
+resolve-then-fetch remote `install`. The repo is a **uv workspace**
 (Cargo-style) with three members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
 service fronting Gitea, providing the `scripticus-svr` command), and
@@ -43,8 +44,12 @@ what a package is, or how client and server communicate) may go there. Client-si
 (override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
 FastAPI app (`app.py`) exposing `GET /health`, `GET /version`,
 `GET /whoami` (pass-through Gitea token verification, D40), and the
-read endpoints — `GET /packages/{namespace}/{name}` (version listing)
-and `GET /search` — backed by the SQLAlchemy index data model (`db.py`,
+read endpoints — `GET /packages/{namespace}/{name}` (version listing),
+`GET /search`, and `POST /resolve` (the D42/D43 resolver — `resolve.py`:
+a backtracking solver over an `Index` abstraction, fed the client's
+installed closure as identities and hard constraints, single-version-per-
+closure, aggregating tool requirements name-only for v1) — backed by the
+SQLAlchemy index data model (`db.py`,
 D23; tables created via `create_all` on first use, D31; DB URL from
 `SCRIPTICUS_INDEX_DB`, default a local SQLite file), plus the write path:
 `POST /packages` (`publish.py`, D32/D37 — pass-through Gitea auth against
@@ -57,11 +62,11 @@ run by `.github/workflows/e2e.yml`). The server has
 no Typer CLI — `scripticus-svr` (`main.py`, argparse for
 `--host`/`--port`) prints a version/address banner and runs uvicorn, and
 the OpenAPI spec is served at `/openapi.json` rather than committed to
-the repo. Resolution is designed but not yet implemented (D42/D43 — a
-server-side solver fed the client's installed state via `POST /resolve`,
-resolve-then-fetch with direct-from-Gitea downloads, and tool resolution
-split across the client/server boundary; single-version-per-closure). A
-server `Dockerfile` exists,
+the repo. The server-side resolver is implemented (`POST /resolve`,
+D42/D43); the remaining gap is the client's remote-install path that
+consumes it — resolve-then-fetch, direct-from-Gitea downloads with
+hash verification, and the client-side tool satisfiability/conflict
+checks. A server `Dockerfile` exists,
 and the root `docker-compose.yml` is the two-service registry bundle
 (index service + Gitea). The design docs below
 describe the intended v1.0.0
