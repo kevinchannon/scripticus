@@ -23,6 +23,12 @@ PACKAGE_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 # case): a namespace must satisfy both.
 NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
 
+# System-tool names come from third-party manifests and later reach a shell
+# command (D44's operator-configured installer), so they are constrained to a
+# safe charset at parse time — no whitespace, quotes, or shell metacharacters
+# — and shell-quoted again at invocation. A manifest cannot inject shell.
+TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
 KNOWN_OS = ("linux", "macos", "windows")
 
 # One archive per format group: POSIX/macOS targets travel as .tar.gz,
@@ -105,6 +111,17 @@ class Platforms(BaseModel):
 class ToolDependencies(BaseModel):
     requires: list[str] = Field(default_factory=list)
     optional: list[str] = Field(default_factory=list)
+
+    @field_validator("requires", "optional")
+    @classmethod
+    def _check_tool_names(cls, value: list[str]) -> list[str]:
+        for name in value:
+            if not TOOL_NAME_RE.match(name):
+                raise ValueError(
+                    f"'{name}' is not a valid tool name"
+                    " (letters, digits, and . _ + -, not starting with . _ + -)"
+                )
+        return value
 
 
 class Dependencies(BaseModel):

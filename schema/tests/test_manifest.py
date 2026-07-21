@@ -141,3 +141,65 @@ def test_dependencies_are_parsed(tmp_path):
     assert manifest.dependencies.packages == {"infra/log-common": "^2.0"}
     assert manifest.dependencies.tools.requires == ["git"]
     assert manifest.dependencies.tools.optional == ["fzf"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["git", "gcc-12", "python3.11", "libssl-dev", "a", "c++", "g++", "clang_format"],
+)
+def test_valid_tool_names_accepted(name):
+    Manifest.model_validate(
+        {
+            "package": {
+                "namespace": "acme",
+                "name": "my-tool",
+                "version": "1.2.3",
+                "language": "python",
+            },
+            "platforms": {"os": ["linux"]},
+            "dependencies": {"tools": {"requires": [name]}},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "git; rm -rf /",  # shell metacharacters
+        "git rm",  # whitespace
+        "$(whoami)",  # command substitution
+        "-flag",  # leading dash
+        ".hidden",  # leading dot
+        "+plus",  # leading plus
+        "",  # empty
+        "foo/bar",  # slash
+    ],
+)
+def test_injection_shaped_tool_names_rejected(tmp_path, name):
+    text = VALID_MANIFEST + f'\n[dependencies.tools]\nrequires = ["{name}"]\n'
+    with pytest.raises(ManifestError, match="not a valid tool name"):
+        load_manifest(write_package(tmp_path, text))
+
+
+def test_tool_name_with_quote_rejected():
+    # A quote can't survive TOML parsing to reach the validator, so check the
+    # model directly: the charset excludes it regardless of how it arrives.
+    with pytest.raises(ValueError, match="not a valid tool name"):
+        Manifest.model_validate(
+            {
+                "package": {
+                    "namespace": "acme",
+                    "name": "my-tool",
+                    "version": "1.2.3",
+                    "language": "python",
+                },
+                "platforms": {"os": ["linux"]},
+                "dependencies": {"tools": {"requires": ['git"; evil']}},
+            }
+        )
+
+
+def test_optional_tool_names_validated_too(tmp_path):
+    text = VALID_MANIFEST + '\n[dependencies.tools]\noptional = ["bad tool"]\n'
+    with pytest.raises(ManifestError, match="not a valid tool name"):
+        load_manifest(write_package(tmp_path, text))
