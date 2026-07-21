@@ -41,10 +41,12 @@ def install(archive: Path, force_all: bool = False) -> None:
 
 
 def install_clash_providers(tmp_path, count: int) -> None:
-    """Install packages tool-1..tool-N all providing 'clash'; tool-N owns it."""
+    """Install tool-1..tool-N in distinct namespaces ns1..nsN, all providing
+    'clash'; tool-N owns the bare shim. Distinct namespaces keep the
+    namespaced shims (ns1.clash, ...) uncontested — only bare `clash` moves."""
     clash = '\n[commands]\nclash = "src/main.py"\n'
     for n in range(1, count + 1):
-        archive = build_archive(tmp_path, name=f"tool-{n}", extra_toml=clash)
+        archive = build_archive(tmp_path, name=f"tool-{n}", namespace=f"ns{n}", extra_toml=clash)
         install(archive, force_all=n > 1)
 
 
@@ -59,14 +61,14 @@ def lockfile(home: Path) -> dict:
 def test_use_repoints_shim_and_ownership(home, tmp_path):
     install_clash_providers(tmp_path, 2)
 
-    result = runner.invoke(app, ["use", "acme/tool-1", "clash"])
+    result = runner.invoke(app, ["use", "ns1/tool-1", "clash"])
     assert result.exit_code == 0, result.output
-    assert "'clash' now points at acme/tool-1 0.1.0 (was acme/tool-2 0.1.0)" in result.output
+    assert "'clash' now points at ns1/tool-1 0.1.0 (was ns2/tool-2 0.1.0)" in result.output
 
-    assert "tool-1" in shim_path(home, "clash").read_text()
+    assert "ns1.tool-1.clash" in shim_path(home, "clash").read_text()
     by_name = {e["name"]: e for e in lockfile(home)["packages"]}
-    assert by_name["tool-1"]["commands"] == ["clash"]
-    assert by_name["tool-2"]["commands"] == []
+    assert "clash" in by_name["tool-1"]["shims"]
+    assert "clash" not in by_name["tool-2"]["shims"]
 
 
 def test_use_accepts_bare_name(home, tmp_path):
@@ -74,7 +76,40 @@ def test_use_accepts_bare_name(home, tmp_path):
 
     result = runner.invoke(app, ["use", "tool-1", "clash"])
     assert result.exit_code == 0, result.output
-    assert "tool-1" in shim_path(home, "clash").read_text()
+    assert "ns1.tool-1.clash" in shim_path(home, "clash").read_text()
+
+
+def test_use_repoints_a_namespaced_shim(home, tmp_path):
+    # Two acme packages contest acme.clash; re-point it explicitly.
+    clash = '\n[commands]\nclash = "src/main.py"\n'
+    install(build_archive(tmp_path, name="tool-1", namespace="acme", extra_toml=clash))
+    install(build_archive(tmp_path, name="tool-2", namespace="acme", extra_toml=clash), force_all=True)
+
+    result = runner.invoke(app, ["use", "acme/tool-1", "acme.clash"])
+    assert result.exit_code == 0, result.output
+    assert "'acme.clash' now points at acme/tool-1" in result.output
+    assert "acme.tool-1.clash" in shim_path(home, "acme.clash").read_text()
+
+    by_name = {e["name"]: e for e in lockfile(home)["packages"]}
+    assert "acme.clash" in by_name["tool-1"]["shims"]
+    # The bare shim is a separate tier — still tool-2's.
+    assert "clash" in by_name["tool-2"]["shims"]
+
+
+def test_use_cannot_repoint_a_namespaced_shim_across_namespaces(home, tmp_path):
+    install_clash_providers(tmp_path, 2)  # ns1/tool-1, ns2/tool-2
+
+    result = runner.invoke(app, ["use", "ns1/tool-1", "ns2.clash"])
+    assert result.exit_code == 1
+    assert "can only point at a package in the 'ns2' namespace" in " ".join(result.output.split())
+
+
+def test_use_rejects_a_fully_qualified_shim(home, tmp_path):
+    install_clash_providers(tmp_path, 2)
+
+    result = runner.invoke(app, ["use", "ns1/tool-1", "ns1.tool-1.clash"])
+    assert result.exit_code == 1
+    assert "not a re-pointable shim" in " ".join(result.output.split())
 
 
 def test_use_restores_an_orphaned_command(home, tmp_path):
@@ -86,9 +121,9 @@ def test_use_restores_an_orphaned_command(home, tmp_path):
     result = runner.invoke(app, ["use", "tool-1", "clash"])
     assert result.exit_code == 0, result.output
     assert "(previously had no shim)" in result.output
-    assert "tool-1" in shim_path(home, "clash").read_text()
+    assert "ns1.tool-1.clash" in shim_path(home, "clash").read_text()
     [entry] = lockfile(home)["packages"]
-    assert entry["commands"] == ["clash"]
+    assert "clash" in entry["shims"]
 
 
 def test_use_on_the_current_owner_is_a_noop(home, tmp_path):
@@ -97,7 +132,7 @@ def test_use_on_the_current_owner_is_a_noop(home, tmp_path):
 
     result = runner.invoke(app, ["use", "tool-2", "clash"])
     assert result.exit_code == 0, result.output
-    assert "already points at acme/tool-2" in result.output
+    assert "already points at ns2/tool-2" in result.output
     assert shim_path(home, "clash").read_text() == before
 
 

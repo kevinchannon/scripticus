@@ -25,13 +25,14 @@ def home(tmp_path, monkeypatch):
 def build_archive(
     parent: Path,
     name: str = "my-tool",
+    namespace: str = "acme",
     language: str = "python",
     version: str = "0.1.0",
     extra_toml: str = "",
 ) -> Path:
     """Scaffold, adjust, and pack a package; return the first archive."""
     workdir = Path(tempfile.mkdtemp(dir=parent, prefix="pkgsrc-"))
-    scaffold_package(language, name, "acme", workdir)
+    scaffold_package(language, name, namespace, workdir)
     manifest = workdir / name / "meta.toml"
     text = manifest.read_text().replace('version = "0.1.0"', f'version = "{version}"')
     manifest.write_text(text + extra_toml)
@@ -53,6 +54,9 @@ def test_install_creates_files_shim_and_lockfile(home, tmp_path):
     assert result.exit_code == 0, result.output
 
     assert (home / "pkgs" / "acme" / "my-tool" / "0.1.0" / "meta.toml").is_file()
+    # All three tiers (D38): fully-qualified plus two conveniences.
+    assert shim_path(home, "acme.my-tool.my-tool").is_file()
+    assert shim_path(home, "acme.my-tool").is_file()
     assert shim_path(home, "my-tool").is_file()
 
     [entry] = lockfile(home)["packages"]
@@ -61,9 +65,27 @@ def test_install_creates_files_shim_and_lockfile(home, tmp_path):
     assert entry["version"] == "0.1.0"
     assert entry["content_hash"].startswith("sha256:")
     assert entry["commands"] == ["my-tool"]
+    assert entry["shims"] == ["acme.my-tool", "my-tool"]
     assert entry["direct"] is True
     assert entry["provenance"]["type"] == "local"
     assert Path(entry["provenance"]["source"]) == archive.resolve()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shim")
+def test_all_three_tiers_run_and_conveniences_delegate(home, tmp_path):
+    runner.invoke(app, ["install", "-f", str(build_archive(tmp_path)), "-y"])
+
+    for tier in ("my-tool", "acme.my-tool", "acme.my-tool.my-tool"):
+        completed = subprocess.run(
+            [str(shim_path(home, tier))], capture_output=True, text=True
+        )
+        assert completed.returncode == 0
+        assert completed.stdout.strip() == "Hello from my-tool!"
+
+    # Conveniences delegate one hop to the fully-qualified shim, not the script.
+    fq = shim_path(home, "acme.my-tool.my-tool")
+    assert fq.name in shim_path(home, "my-tool").read_text()
+    assert fq.name in shim_path(home, "acme.my-tool").read_text()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX shim")
@@ -121,6 +143,7 @@ def test_shim_conflict_aborts_whole_transaction_with_yes(home, tmp_path):
 
 
 def test_shim_conflict_overwrites_with_force_all(home, tmp_path):
+    # Same namespace, so both convenience tiers (clash and acme.clash) collide.
     clash = '\n[commands]\nclash = "src/main.py"\n'
     first = build_archive(tmp_path, name="tool-one", extra_toml=clash)
     second = build_archive(tmp_path, name="tool-two", extra_toml=clash)
@@ -129,12 +152,61 @@ def test_shim_conflict_overwrites_with_force_all(home, tmp_path):
     result = runner.invoke(app, ["install", "-f", str(second), "--force", "all"])
     assert result.exit_code == 0, result.output
     assert "Overwritten shims" in result.output
-    assert "clash" in result.output
+    assert "acme.clash" in result.output and "clash" in result.output
 
     by_name = {e["name"]: e for e in lockfile(home)["packages"]}
-    assert by_name["tool-two"]["commands"] == ["clash"]
-    assert "clash" not in by_name["tool-one"]["commands"]
-    assert "tool-two" in shim_path(home, "clash").read_text()
+    # `commands` is what each provides (unchanged); `shims` is who owns them.
+    assert by_name["tool-one"]["commands"] == by_name["tool-two"]["commands"] == ["clash"]
+    assert by_name["tool-two"]["shims"] == ["acme.clash", "clash"]
+    assert by_name["tool-one"]["shims"] == []
+    # The winner's conveniences delegate to its own fully-qualified shim...
+    assert "acme.tool-two.clash" in shim_path(home, "clash").read_text()
+    # ...but the loser's fully-qualified shim still exists and is untouched.
+    assert shim_path(home, "acme.tool-one.clash").is_file()
+
+
+def test_cross_namespace_collision_contests_only_the_bare_shim(home, tmp_path):
+    """Two namespaces providing the same command name: the namespaced shims
+    differ (foo.clash vs bar.clash), so only bare `clash` collides — which
+    is why -y would abort and --force all is needed for the second."""
+    clash = '\n[commands]\nclash = "src/main.py"\n'
+    first = build_archive(tmp_path, name="alpha", namespace="foo", extra_toml=clash)
+    second = build_archive(tmp_path, name="beta", namespace="bar", extra_toml=clash)
+    runner.invoke(app, ["install", "-f", str(first), "-y"])
+
+    result = runner.invoke(app, ["install", "-f", str(second), "--force", "all"])
+    assert result.exit_code == 0, result.output
+    # Only the bare `clash` was overwritten; the namespaced shims never clash.
+    assert "clash" in result.output and "foo.clash" not in result.output
+
+    by_ns = {e["namespace"]: e for e in lockfile(home)["packages"]}
+    assert by_ns["foo"]["shims"] == ["foo.clash"]
+    assert by_ns["bar"]["shims"] == ["bar.clash", "clash"]
+    assert shim_path(home, "foo.clash").is_file()
+    assert shim_path(home, "bar.clash").is_file()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shim")
+def test_losers_fully_qualified_shim_still_runs_the_loser(home, tmp_path):
+    """The D38 guarantee: losing the bare name never makes a command
+    unreachable — its fully-qualified shim still runs it."""
+    body = '\n[commands]\nclash = "src/main.py"\n'
+    runner.invoke(
+        app, ["install", "-f", str(build_archive(tmp_path, name="loser", extra_toml=body)), "-y"]
+    )
+    runner.invoke(
+        app,
+        ["install", "-f", str(build_archive(tmp_path, name="winner", extra_toml=body)), "--force", "all"],
+    )
+
+    def run(tier):
+        return subprocess.run(
+            [str(shim_path(home, tier))], capture_output=True, text=True
+        ).stdout.strip()
+
+    assert run("clash") == "Hello from winner!"  # bare went to the winner
+    assert run("acme.loser.clash") == "Hello from loser!"  # loser still reachable
+    assert run("acme.winner.clash") == "Hello from winner!"
 
 
 def test_upgrade_replaces_previous_version(home, tmp_path):

@@ -13,14 +13,17 @@ service fronting Gitea, providing the `scripticus-svr` command), and
 `schema/` (PyPI package `scripticus-schema`, the shared client/server
 contract, D29). The client is a Typer + Rich CLI. It implements `-v`/`--version`, `new`
 (scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`),
-`install -f` (local install: extraction, transaction flow, shims, lockfile —
-`install.py`; a package declaring package dependencies is rejected by a
-resolver stub until remote install brings real resolution), `uninstall`
+`install -f` (local install: extraction, transaction flow, three-tier shims,
+lockfile — `install.py`; a package declaring package dependencies is rejected
+by a resolver stub until remote install brings real resolution; every command
+gets a guaranteed-unique `<ns>.<pkg>.<cmd>` shim plus `<ns>.<cmd>` and bare
+convenience shims that delegate to it, D38, with convenience-shim ownership
+tracked in each lockfile entry's `shims` list), `uninstall`
 (lockfile-driven removal of a package's files and owned shims, with a
-replacement picker for commands other installed packages still provide, D28
-— `uninstall.py`), `use` (manually re-point a command shim at an
-installed package, D11 — `use.py`, sharing the uninstall picker's re-point
-primitive), `login` (token capture per remote, doubling as first-time
+replacement picker for convenience shims other installed packages still
+provide, D28 — `uninstall.py`), `use` (manually re-point a convenience shim
+by name at an installed package, D11/D38 — `use.py`, sharing the uninstall
+picker's re-point primitive), `login` (token capture per remote, doubling as first-time
 remote registration, D34/D35 — decision logic in `login.py`, the
 `[[remotes]]` config in `config.py`, the 0600 URL-keyed credential store
 in `credentials.py`), and `publish` (D36/D37 — `publish.py`: structural
@@ -152,9 +155,11 @@ casually:
   pattern).
 - **No manifest correctness verification, ever** (D14): no lint, no sandbox,
   no advisory checks — a deliberate non-goal, not a gap to fill.
-- **Single shared bin dir, last-install-wins shims** (D11), with the
-  dnf-style transaction flow (D17) and split `--force` semantics (D18) as the
-  safety mechanisms. Exit codes never mean "partially installed".
+- **Single shared bin dir, three-tier last-install-wins shims** (D11/D38):
+  each command has a guaranteed-unique `<ns>.<pkg>.<cmd>` shim plus `<ns>.<cmd>`
+  and bare convenience shims; only the convenience tiers collide, under the
+  dnf-style transaction flow (D17) and split `--force` semantics (D18). Exit
+  codes never mean "partially installed".
 - **SQLite via SQLAlchemy with no SQLite-isms** (D23), so Postgres stays a
   configuration change.
 

@@ -213,7 +213,7 @@ def _print_transaction(transaction: Transaction) -> None:
         console.print("\nShim conflicts:")
         for conflict in transaction.conflicts:
             console.print(
-                f"  {conflict.command}  currently owned by {conflict.owner}"
+                f"  {conflict.shim}  currently owned by {conflict.owner}"
                 " — will be overwritten"
             )
 
@@ -280,7 +280,7 @@ def install(
         if transaction.conflicts:
             console.print("Overwritten shims:")
             for conflict in transaction.conflicts:
-                console.print(f"  {conflict.command}  (was {conflict.owner})")
+                console.print(f"  {conflict.shim}  (was {conflict.owner})")
     finally:
         shutil.rmtree(transaction.staging, ignore_errors=True)
 
@@ -312,10 +312,13 @@ def uninstall(
 
     package_id = f"{entry['namespace']}/{entry['name']}"
     console.print(f"Uninstalling [bold]{package_id}[/bold] {entry['version']}")
-    if entry["commands"]:
-        console.print(f"\nCommand shims to remove: {', '.join(entry['commands'])}")
+    if entry.get("shims"):
+        console.print(f"\nCommand shims to remove: {', '.join(entry['shims'])}")
     else:
-        console.print("\nNo command shims to remove (other packages own them all).")
+        console.print(
+            "\nNo shared command shims to remove (other packages own them all);"
+            " its fully-qualified shims go too."
+        )
 
     if not yes:
         console.print()
@@ -326,53 +329,53 @@ def uninstall(
     apply_uninstall(entry, lock, home)
     console.print(f"\nUninstalled [bold]{package_id}[/bold] {entry['version']}")
 
-    for command in sorted(replacements):
-        candidates = replacements[command]
+    for shim in sorted(replacements):
+        candidates = replacements[shim]
         if yes:
-            _report_replacements(command, candidates)
+            _report_replacements(shim, candidates)
         else:
-            _prompt_replacement(command, candidates, lock, home)
+            _prompt_replacement(shim, candidates, lock, home)
 
 
-def _report_replacements(command: str, candidates: "list[Candidate]") -> None:
+def _report_replacements(shim: str, candidates: "list[Candidate]") -> None:
     """Non-interactive: never re-point silently, just say what's possible."""
     if len(candidates) == 1:
         candidate = candidates[0]
         console.print(
-            f"\n'{command}' is also provided by {candidate.package_id} — run"
-            f" 'scripticus use {candidate.package_id} {command}' to restore it."
+            f"\n'{shim}' is also provided by {candidate.package_id} — run"
+            f" 'scripticus use {candidate.package_id} {shim}' to restore it."
         )
     else:
-        console.print(f"\nSeveral packages provide '{command}':")
+        console.print(f"\nSeveral packages provide '{shim}':")
         for candidate in candidates:
             console.print(f"  {candidate.package_id}  {candidate.version}")
         console.print(
             "No replacement selected by default — use"
-            f" 'scripticus use <namespace/name> {command}' to select one."
+            f" 'scripticus use <namespace/name> {shim}' to select one."
         )
 
 
 def _prompt_replacement(
-    command: str, candidates: "list[Candidate]", lock: dict, home: Path
+    shim: str, candidates: "list[Candidate]", lock: dict, home: Path
 ) -> None:
-    console.print(f"\n'{command}' is also provided by other installed packages:")
+    console.print(f"\n'{shim}' is also provided by other installed packages:")
     console.print("  0) No replacement")
     for number, candidate in enumerate(candidates, start=1):
         console.print(f"  {number}) {candidate.package_id}  {candidate.version}")
 
     while True:
         choice = typer.prompt(
-            f"Select a replacement for '{command}'", type=int, default=0
+            f"Select a replacement for '{shim}'", type=int, default=0
         )
         if 0 <= choice <= len(candidates):
             break
         console.print(f"Please choose a number between 0 and {len(candidates)}.")
     if choice == 0:
-        console.print(f"'{command}' left without a shim.")
+        console.print(f"'{shim}' left without a shim.")
         return
     candidate = candidates[choice - 1]
-    install_replacement(candidate, command, lock, home)
-    console.print(f"'{command}' now points at {candidate.package_id} {candidate.version}")
+    install_replacement(candidate, shim, lock, home)
+    console.print(f"'{shim}' now points at {candidate.package_id} {candidate.version}")
 
 
 @app.command()
@@ -440,19 +443,20 @@ def publish(
 def use(
     package: str = typer.Argument(
         ...,
-        help="Installed package to point the command at, as 'name' or 'namespace/name'.",
+        help="Installed package to point the shim at, as 'name' or 'namespace/name'.",
     ),
-    command: str = typer.Argument(
+    shim: str = typer.Argument(
         ...,
-        help="The command whose shim to re-point.",
+        help="The convenience shim to re-point: a bare command ('clash') or"
+        " a namespaced one ('acme.clash'). Fully-qualified shims are fixed.",
     ),
 ) -> None:
-    """Point a command's shim at a specific installed package."""
+    """Point a convenience command shim at a specific installed package."""
     home = scripticus_home()
     lock = read_lockfile(home)
 
     try:
-        candidate, owner = prepare_use(package, command, lock, home)
+        candidate, owner = prepare_use(package, shim, lock, home)
     except UseError as exc:
         console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
@@ -462,18 +466,18 @@ def use(
         and (owner["namespace"], owner["name"]) == (candidate.namespace, candidate.name)
     ):
         console.print(
-            f"'{command}' already points at {candidate.package_id} {candidate.version}"
+            f"'{shim}' already points at {candidate.package_id} {candidate.version}"
             " — nothing to do"
         )
         return
 
-    install_replacement(candidate, command, lock, home)
+    install_replacement(candidate, shim, lock, home)
     was = (
         f" (was {owner['namespace']}/{owner['name']} {owner['version']})"
         if owner is not None
         else " (previously had no shim)"
     )
     console.print(
-        f"'{command}' now points at [bold]{candidate.package_id}[/bold]"
+        f"'{shim}' now points at [bold]{candidate.package_id}[/bold]"
         f" {candidate.version}{was}"
     )

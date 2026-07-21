@@ -152,7 +152,7 @@ installed command directly invocable by its namespaced names instead.
       shell.
 - [x] Command-name collisions: last-install-wins, with `use` to manually
       re-point a shim.
-- [ ] Three-tier shims (D38): every command materialises a
+- [x] Three-tier shims (D38): every command materialises a
       guaranteed-unique `<ns>.<pkg>.<cmd>` shim plus `<ns>.<cmd>` and bare
       convenience pointers (which target the fully-qualified shim
       directly). Convenience-tier collisions follow the same

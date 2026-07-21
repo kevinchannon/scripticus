@@ -10,6 +10,14 @@ via the ``SCRIPTICUS_HOME`` environment variable):
   POSIX and generated ``.cmd`` files on Windows (D11); the interpreter comes
   from the manifest's language field, so extraction losing the executable
   bit (zip) does not matter.
+
+Every command materialises three shims (D38): the fully-qualified
+``<namespace>.<package>.<command>`` (structurally unique, the real
+interpreter wrapper), plus ``<namespace>.<command>`` and bare
+``<command>`` conveniences that delegate directly to it. Only the
+convenience tiers can collide; their ownership is tracked per entry in
+the lockfile's ``shims`` list (``commands`` lists what the package
+provides, which never changes with ownership).
 """
 
 import json
@@ -69,6 +77,32 @@ def _find_entry(lock: dict, namespace: str, name: str) -> dict | None:
     return None
 
 
+# --- Shim naming (D38) ------------------------------------------------------
+#
+# Dot count identifies a shim's tier — namespaces, package names, and
+# command names all exclude '.'.
+
+
+def fq_shim(namespace: str, name: str, command: str) -> str:
+    return f"{namespace}.{name}.{command}"
+
+
+def ns_shim(namespace: str, command: str) -> str:
+    return f"{namespace}.{command}"
+
+
+def convenience_shims(namespace: str, commands) -> list[str]:
+    """Every convenience-tier shim name for a package's commands, sorted."""
+    return sorted(
+        {shim for command in commands for shim in (command, ns_shim(namespace, command))}
+    )
+
+
+def shim_command(shim: str) -> str:
+    """The command a convenience shim name refers to (its last segment)."""
+    return shim.rpartition(".")[2]
+
+
 # --- Transaction preparation ----------------------------------------------
 
 
@@ -97,7 +131,7 @@ class Tool:
 
 @dataclass
 class Conflict:
-    command: str
+    shim: str  # the contested convenience shim name (bare or ns.cmd)
     owner: str  # "namespace/name version"
 
 
@@ -184,14 +218,16 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
         optional_tools = [Tool(t, shutil.which(t) is not None) for t in tools.optional]
 
         commands = commands_of(manifest)
+        incoming = convenience_shims(package.namespace, commands)
         conflicts = []
         for other in lock["packages"]:
             if entry is not None and other is entry:
                 continue  # replacing our own shims is not a conflict
-            for command in commands:
-                if command in other["commands"]:
+            owned = set(other.get("shims", []))
+            for shim in incoming:
+                if shim in owned:
                     conflicts.append(
-                        Conflict(command, f"{other['namespace']}/{other['name']} {other['version']}")
+                        Conflict(shim, f"{other['namespace']}/{other['name']} {other['version']}")
                     )
 
         return Transaction(
@@ -229,6 +265,19 @@ def _write_shim(bin_dir: Path, command: str, script: Path, language: str) -> Non
         shim.chmod(0o755)
 
 
+def _write_delegating_shim(bin_dir: Path, shim_name: str, target_name: str) -> None:
+    """A convenience shim: one hop, straight to the fully-qualified shim
+    (never convenience-to-convenience), so reading it names the true owner.
+    """
+    shim = _shim_path(bin_dir, shim_name)
+    target = _shim_path(bin_dir, target_name)
+    if os.name == "nt":
+        shim.write_text(f'@echo off\r\ncall "{target}" %*\r\n')
+    else:
+        shim.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n')
+        shim.chmod(0o755)
+
+
 def apply_install(transaction: Transaction, home: Path) -> None:
     """Install the staged package tree: files, shims, lockfile."""
     package = transaction.manifest.package
@@ -246,23 +295,30 @@ def apply_install(transaction: Transaction, home: Path) -> None:
     lock = read_lockfile(home)
     previous = _find_entry(lock, namespace, name)
     if previous is not None:
-        # Remove the previous version's tree and any shims it owned that the
-        # new version no longer provides.
+        # Remove the previous version's tree and any shims (fully-qualified
+        # or owned convenience) for commands the new version no longer
+        # provides.
         if previous["version"] != version:
             shutil.rmtree(home / "pkgs" / namespace / name / previous["version"], ignore_errors=True)
         for command in previous["commands"]:
             if command not in transaction.commands:
-                _shim_path(bin_dir, command).unlink(missing_ok=True)
+                _shim_path(bin_dir, fq_shim(namespace, name, command)).unlink(missing_ok=True)
+        for shim in previous.get("shims", []):
+            if shim_command(shim) not in transaction.commands:
+                _shim_path(bin_dir, shim).unlink(missing_ok=True)
         lock["packages"].remove(previous)
 
     for command, script in transaction.commands.items():
-        _write_shim(bin_dir, command, install_dir / script, package.language)
+        target = fq_shim(namespace, name, command)
+        _write_shim(bin_dir, target, install_dir / script, package.language)
+        for shim in (command, ns_shim(namespace, command)):
+            _write_delegating_shim(bin_dir, shim, target)
 
-    # Shims are last-install-wins (D11): any conflicting command now belongs
-    # to this package, so drop it from the previous owner's ownership list.
-    conflicted = {conflict.command for conflict in transaction.conflicts}
+    # Convenience shims are last-install-wins (D11/D38): any contested one
+    # now belongs to this package, so drop it from the previous owner.
+    conflicted = {conflict.shim for conflict in transaction.conflicts}
     for entry in lock["packages"]:
-        entry["commands"] = [c for c in entry["commands"] if c not in conflicted]
+        entry["shims"] = [s for s in entry.get("shims", []) if s not in conflicted]
 
     lock["packages"].append(
         {
@@ -272,6 +328,7 @@ def apply_install(transaction: Transaction, home: Path) -> None:
             "language": package.language,
             "content_hash": transaction.content_hash,
             "commands": sorted(transaction.commands),
+            "shims": convenience_shims(namespace, transaction.commands),
             "direct": True,
             "provenance": {"type": "local", "source": str(transaction.source.resolve())},
             # Always empty until the resolver exists: resolve_dependencies
