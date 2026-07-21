@@ -75,7 +75,7 @@ control rather than cryptographic assurance.
 - [x] Token-verification endpoint: `GET /whoami`, a whoami-style
       pass-through of the caller's Gitea token, so the client can verify a
       token at `login` time rather than at first publish (D40, follow-up
-      to D34). Client-side use at login is still to come.
+      to D34). `login` now calls it to verify before storing (D41).
 - [ ] Platform-aware resolution: the client's platform is an input to
       resolution so the correct artifact variant is selected automatically.
 - [ ] Read path: index service returns metadata plus direct download
@@ -181,8 +181,8 @@ installed command directly invocable by its namespaced names instead.
       Gitea personal access token per remote in `credentials.toml`
       (plaintext, 0600, cargo-style; a separate file from the
       org-distributable `config.toml`), with `SCRIPTICUS_TOKEN` as the CI
-      override (D34). Verification at login is follow-up work behind the
-      server's token-verification endpoint.
+      override (D34). The token is verified against the remote's `/whoami`
+      before being stored, reporting the authenticated identity (D40/D41).
 - [ ] `config install <git-url>` to roll out org-wide client configuration
       (remotes, defaults) in one command (Conan-style).
 - [x] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with

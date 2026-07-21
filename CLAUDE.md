@@ -26,7 +26,8 @@ by name at an installed package, D11/D38 — `use.py`, sharing the uninstall
 picker's re-point primitive), `login` (token capture per remote, doubling as first-time
 remote registration, D34/D35 — decision logic in `login.py`, the
 `[[remotes]]` config in `config.py`, the 0600 URL-keyed credential store
-in `credentials.py`), and `publish` (D36/D37 — `publish.py`: structural
+in `credentials.py`; the token is verified against the remote's
+`/whoami` before storing, D41 — `whoami.py`), and `publish` (D36/D37 — `publish.py`: structural
 name-version matching of pre-built archives, one batched multipart POST
 to the first-listed or `--remote`-named remote, token via
 `SCRIPTICUS_TOKEN` or the credential store, 401 mapped to an actionable
@@ -124,7 +125,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D40). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D41). Each
   entry has decision, reasoning, and consequences (good *and* bad). Entries
   stay terse — match the register of D1–D11 (a tight Decision paragraph, a
   tight Reason, short consequence bullets). Architectural elaboration of a

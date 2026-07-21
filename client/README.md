@@ -273,6 +273,7 @@ remote by name:
 ```console
 $ scripticus login origin
 Token: ********
+Logged in to origin (https://scripts.example.com) as kevin-c
 ```
 
 The first time you log in to a remote that isn't already in `config.toml`,
@@ -281,7 +282,13 @@ give its URL too — this registers the remote as well as authenticating:
 ```console
 $ scripticus login origin https://scripts.example.com
 Token: ********
+Logged in to origin (https://scripts.example.com) as kevin-c
 ```
+
+`login` verifies the token against the remote before storing it and prints
+the Gitea account it authenticated as, so a mistyped token fails right away
+rather than at your first publish. A rejected token, or a remote that can't
+be reached, is reported as such and nothing is written.
 
 The token is stored in `~/.scripticus/credentials.toml`, readable only by
 you, and sent with each publish — the registry itself holds no credentials.

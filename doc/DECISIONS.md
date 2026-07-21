@@ -1024,3 +1024,40 @@ response.
   path, tested unit-side and behind the `e2e` marker like publish.
 - Bad: another live Gitea round-trip per login; negligible, and the
   point of the endpoint.
+
+---
+
+## D41. `login` verifies the token via `/whoami` before storing it; unreachable refuses
+
+**Decision**: `scripticus login` calls the target remote's `GET /whoami`
+(D40) with the freshly entered token before writing `credentials.toml`,
+and stores the token only if it authenticates. Success confirms with the
+authenticated Gitea login (`Logged in to <remote> (<url>) as <user>`). A
+rejected token (401) and an unreachable remote are reported as distinct
+errors — the latter says the token may be fine and the remote merely down
+— but both refuse the login and write no credential. The stored-file
+format is unchanged (D34): this alters only what `login` does before
+writing. Because config is written before the token prompt (to fail early
+on an unwritable config), a first-time `login <name> <url>` whose token is
+then rejected leaves the remote registered but stores no token; a plain
+re-login recovers. This is the client half of D34's deferred verification,
+completing it against D40.
+
+**Reason**: Verifying at entry turns a mistyped token from a confusing
+first-publish failure into an immediate, clear login error — the
+docker/npm-login UX D34 anticipated. Refusing on an unreachable remote is
+the simpler contract than storing-with-a-warning: an unverified token on
+disk is exactly the state verification exists to prevent, and the retry
+cost is one command.
+
+**Consequences**:
+- Good: bad credentials are caught at the moment and place they are
+  entered, with the authenticated identity shown back as confirmation.
+- Good: no new wire surface or storage change — reuses D40 and the
+  existing credential store.
+- Bad: `login` now requires the remote to be reachable, so it can no
+  longer be completed fully offline (previously it never contacted the
+  remote at all).
+- Bad: a first-time registration whose token is rejected leaves the
+  remote in `config.toml` without a credential — recoverable by
+  re-login, but a mild surprise.

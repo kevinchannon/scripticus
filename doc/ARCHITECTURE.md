@@ -276,6 +276,7 @@ are designed (D30, D32; publish auth is pass-through of the caller's
 Gitea token, D32, obtained via `scripticus login` and stored per named
 remote, D34/D35). Token verification at login is served by the index
 service's `GET /whoami`, a pass-through of the caller's Gitea token to
-Gitea's `/user` returning the authenticated login (D40, the server half
-of D34); wiring the client's `login` to call it is the remaining
-follow-up.
+Gitea's `/user` returning the authenticated login (D40); `scripticus
+login` calls it to verify a token before storing it, reporting the
+authenticated identity and refusing to store an unverified one (D41) —
+together completing D34's deferred verification.

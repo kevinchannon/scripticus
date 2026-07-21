@@ -20,6 +20,7 @@ from scripticus.install import (
     scripticus_home,
 )
 from scripticus.login import LoginError, prepare_login
+from scripticus.whoami import WhoAmIError, verify_token
 from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
 from scripticus.publish import (
@@ -404,8 +405,21 @@ def login(
         raise typer.Exit(code=1) from exc
 
     token = typer.prompt("Token", hide_input=True)
+
+    # Verify against the remote before storing (D41): a bad or mistyped
+    # token fails here, clearly, rather than at first publish. Nothing is
+    # written to credentials.toml unless the token authenticates.
+    try:
+        identity = verify_token(target, token)
+    except WhoAmIError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
     set_token(home, target.url, token)
-    console.print(f"Logged in to [bold]{target.name}[/bold] ({target.url})")
+    console.print(
+        f"Logged in to [bold]{target.name}[/bold] ({target.url})"
+        f" as [bold]{escape(identity.username)}[/bold]"
+    )
 
 
 @app.command()
