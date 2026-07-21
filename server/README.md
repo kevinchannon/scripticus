@@ -2,8 +2,8 @@
 
 The index service for [Scripticus](https://github.com/kevinchannon/scripticus),
 a package manager and registry for scripts. The server provides
-manifest-aware search, version and dependency resolution, and the publish
-path for a Scripticus registry. Installing this package provides the
+manifest-aware search, version listing, and the atomic publish path for
+a Scripticus registry. Installing this package provides the
 `scripticus-svr` command.
 
 ## Running the server
@@ -48,21 +48,27 @@ to point elsewhere. Tables are created automatically on first use.
 
 ### Publishing
 
-`POST /packages` publishes a package: a multipart upload of one archive
-(as produced by `scripticus pack`) with your Gitea token in the
-`Authorization` header:
+`POST /packages` publishes a package version: a multipart upload of one
+or more archives — a version's whole format-group set, as produced by
+`scripticus pack`, one repeated `archives` part each — with your Gitea
+token in the `Authorization` header. This is what `scripticus publish`
+does for you; the raw request looks like:
 
 ```console
 $ curl -X POST http://localhost:8000/packages \
     -H "Authorization: token <your-gitea-token>" \
-    -F archive=@my_tool-1.0.0-linux.macos-bash.tar.gz
+    -F archives=@my_tool-1.0.0-linux.macos-bash.tar.gz \
+    -F archives=@my_tool-1.0.0-windows-bash.zip
 ```
 
-The server trusts nothing about the upload: it re-validates the manifest
-and package tree, computes the content hash, checks with Gitea (live)
-that your token may publish to the manifest's namespace — your own
-username, or an organisation you belong to — stores the blob in Gitea's
-generic package registry, and only then commits the index record.
+The server trusts nothing about the upload: it re-validates every
+archive's manifest and package tree, checks the batch is one content
+tree in different archive formats, computes the content hash, checks
+with Gitea (live) that your token may publish to the manifest's
+namespace — your own username, or an organisation you belong to —
+stores the blobs in Gitea's generic package registry, and only then
+commits the index record. The batch is atomic: if any archive fails
+validation or any write fails, nothing is published.
 Versions are immutable; the one addition an existing version accepts is
 an artifact in a new archive format carrying the identical content hash.
 Declared package dependencies must be fully namespaced and already

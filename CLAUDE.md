@@ -4,19 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Implementation has just begun. The repo is a **uv workspace** (Cargo-style)
-with three members: `client/` (PyPI package `scripticus`, the CLI),
-`server/` (PyPI package `scripticus-server`, providing the `scripticus-svr`
-command; will become the FastAPI index service fronting Gitea per D13), and
+The write path is implemented end-to-end (pack → login → publish →
+index + Gitea); the main gaps are the remote read path in the client
+(search/install) and resolution. The repo is a **uv workspace**
+(Cargo-style) with three members: `client/` (PyPI package `scripticus`,
+the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
+service fronting Gitea, providing the `scripticus-svr` command), and
 `schema/` (PyPI package `scripticus-schema`, the shared client/server
 contract, D29). The client is a Typer + Rich CLI. It implements `-v`/`--version`, `new`
-(scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`), and
+(scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`),
 `install -f` (local install: extraction, transaction flow, shims, lockfile —
 `install.py`; a package declaring package dependencies is rejected by a
 resolver stub until remote install brings real resolution), `uninstall`
 (lockfile-driven removal of a package's files and owned shims, with a
 replacement picker for commands other installed packages still provide, D28
-— `uninstall.py`), and `use` (manually re-point a command shim at an
+— `uninstall.py`), `use` (manually re-point a command shim at an
 installed package, D11 — `use.py`, sharing the uninstall picker's re-point
 primitive), `login` (token capture per remote, doubling as first-time
 remote registration, D34/D35 — decision logic in `login.py`, the
@@ -37,9 +39,10 @@ read endpoints — `GET /packages/{namespace}/{name}` (version listing)
 and `GET /search` — backed by the SQLAlchemy index data model (`db.py`,
 D23; tables created via `create_all` on first use, D31; DB URL from
 `SCRIPTICUS_INDEX_DB`, default a local SQLite file), plus the write path:
-`POST /packages` (`publish.py`, D32 — pass-through Gitea auth against
-`SCRIPTICUS_GITEA_URL`, everything derived from the uploaded archive,
-blob to Gitea before the index record commits; dependency rules per D33),
+`POST /packages` (`publish.py`, D32/D37 — pass-through Gitea auth against
+`SCRIPTICUS_GITEA_URL`, everything derived from the uploaded archives,
+the whole batch validated before any blob goes to Gitea and every blob
+confirmed before the index record commits; dependency rules per D33),
 with the Gitea boundary isolated in `gitea.py` so tests fake it
 (e2e tests against real Gitea are marked `e2e`, deselected by default,
 run by `.github/workflows/e2e.yml`). The server has

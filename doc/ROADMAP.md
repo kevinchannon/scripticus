@@ -8,23 +8,23 @@ control rather than cryptographic assurance.
 
 ### Package model
 
-- [ ] Package unit is a directory, distributed as a compressed archive
+- [x] Package unit is a directory, distributed as a compressed archive
       (`.tar.gz` on POSIX/macOS, `.zip` on Windows).
-- [ ] TOML manifest at the package root declaring: namespace, name, version,
+- [x] TOML manifest at the package root declaring: namespace, name, version,
       language, supported platforms (OS, optionally narrower distro list),
       required and optional system tools, package dependencies, and commands.
-- [ ] Package names are kebab-case (lower-case with dashes), enforced at
+- [x] Package names are kebab-case (lower-case with dashes), enforced at
       publish time. Script filenames inside a package follow language/platform
       conventions and are not constrained by the package naming rule.
-- [ ] Entrypoint rules:
+- [x] Entrypoint rules:
   - No `[commands]` table → `src` MUST contain `main.<ext>` (extension per
     language convention); this runs when the package name is typed.
   - `[commands]` table present → each entry maps a command name to a script
     path (`cmd-name = "src/script-name"`); every listed command gets a shim.
-- [ ] Standard layout: manifest at top level, `src/` for scripts, `test/` for
+- [x] Standard layout: manifest at top level, `src/` for scripts, `test/` for
       tests, `LICENSE`, `README.md`.
-- [ ] Strict semver enforced at publish; non-conforming versions rejected.
-- [ ] Multiple platform/language variants of the same package version may
+- [x] Strict semver enforced at publish; non-conforming versions rejected.
+- [x] Multiple platform/language variants of the same package version may
       coexist as separate artifacts. Artifact filenames encode
       name/version/platform/language tags (wheel-style; dashes in name/version
       normalised to underscores in the filename so the dash remains an
@@ -33,34 +33,34 @@ control rather than cryptographic assurance.
 
 ### Identity, namespacing & integrity
 
-- [ ] Content-addressed artifact identity from day one: the canonical
+- [x] Content-addressed artifact identity from day one: the canonical
       reference for an artifact is a hash of the package directory tree
       (Merkle-style, as git does for trees).
-- [ ] Fully namespaced packages (`owner/name`, GitHub-style). No flat tier.
-- [ ] Namespace allocation is first-come-first-served and maps 1:1 onto the
+- [x] Fully namespaced packages (`owner/name`, GitHub-style). No flat tier.
+- [x] Namespace allocation is first-come-first-served and maps 1:1 onto the
       backing registry's (Gitea's) user/org namespace and ACLs.
-- [ ] Namespace character set: lower-case letters, digits, and dashes,
-      beginning with a letter (validated client-side in `new`/`pack` today;
-      enforced at publish once the server exists). Stricter than Gitea's own
+- [x] Namespace character set: lower-case letters, digits, and dashes,
+      beginning with a letter (validated client-side in `new`/`pack`;
+      enforced authoritatively at publish). Stricter than Gitea's own
       username rules, deliberately: `_` is excluded so that in artifact
       filenames underscores unambiguously mark normalised dashes *within* a
       field while dashes delineate the fields themselves
       (name/version/platforms/language — as Python wheels do), and `.` is
       excluded to keep it free for dot-qualified invocation of namespaced
       command overloads post-v1 (see below).
-- [ ] The `library` namespace is reserved for future curated/reviewed
+- [x] The `library` namespace is reserved for future curated/reviewed
       packages.
-- [ ] No framework-level manifest correctness checks (no lint, no sandboxed
+- [x] No framework-level manifest correctness checks (no lint, no sandboxed
       verification). Manifest accuracy is entirely the package developer's
       responsibility; this is stated explicitly in documentation.
 
 ### Server (index service)
 
-- [ ] Python service (FastAPI) fronting a Gitea instance used as the
+- [x] Python service (FastAPI) fronting a Gitea instance used as the
       storage/auth/namespace substrate (generic package registry).
 - [ ] Owns the package index: manifest-aware search (name, tags, platform,
       language), version listing, and resolution.
-- [ ] Batch atomic publish: the client sends one or more archives — a
+- [x] Batch atomic publish: the client sends one or more archives — a
       version's whole format-group set — plus manifests to the index
       service in a single request; the service validates every archive
       (without trusting the client) before writing any blob to Gitea, and
@@ -71,7 +71,7 @@ control rather than cryptographic assurance.
       returns the full resolved transitive closure as a flat list of
       (package, version, download pointer). Single-version-per-closure
       (no side-by-side versions of the same package).
-- [ ] Cycle detection at publish time.
+- [x] Cycle detection at publish time.
 - [ ] Token-verification endpoint: a whoami-style pass-through of the
       caller's Gitea token, so the client can verify a token at `login`
       time rather than at first publish (follow-up to D34).
@@ -82,16 +82,16 @@ control rather than cryptographic assurance.
 - [ ] npm-style yank: yanked versions are excluded from `latest`/search
       resolution but remain fetchable when directly pinned (including via
       lockfiles). No hard delete.
-- [ ] Data model: relational schema (namespace → package → package_version →
+- [x] Data model: relational schema (namespace → package → package_version →
       artifact/dependency/tool_dep/command), storing each manifest verbatim
       alongside publish-time-extracted queryable columns (blob authoritative,
       columns a re-derivable projection). Dependency graph as plain rows
       resolved on demand; yank as a whole-version flag; nothing ACL-shaped
       cached from Gitea (live permission checks at publish); no
       install/download tracking.
-- [ ] SQLite via SQLAlchemy (no SQLite-isms), keeping Postgres as a
+- [x] SQLite via SQLAlchemy (no SQLite-isms), keeping Postgres as a
       configuration change for larger deployments.
-- [ ] Deployment as a single `docker-compose.yml` bundling Gitea + the index
+- [x] Deployment as a single `docker-compose.yml` bundling Gitea + the index
       service; SQLite-backed Gitea acceptable for small deployments.
 
 ### Client (CLI)
@@ -106,24 +106,24 @@ control rather than cryptographic assurance.
       user-configurable namespace search path (Homebrew-tap-style). Bare names
       are purely a client-side resolution convenience; stored identity is
       always fully namespaced.
-- [ ] `install -f|--file <archive>` for local installs (pip-style). Install
+- [x] `install -f|--file <archive>` for local installs (pip-style). Install
       state records provenance (remote vs local file); `update` skips/warns on
       local-provenance packages.
-- [ ] dnf/apt-style install confirmation flow: fully resolve first, then show
+- [x] dnf/apt-style install confirmation flow: fully resolve first, then show
       (a) what is newly installed / version-changed (downgrades called out
       distinctly; already-satisfied dependencies not listed as actions),
       (b) shim conflicts, shown distinctly and naming the namespaced package
       that currently owns each affected shim, then (c) prompt.
-- [ ] `--force=no-conflicts` (what bare `-y` means): auto-accept
+- [x] `--force=no-conflicts` (what bare `-y` means): auto-accept
       new installs, but abort the whole transaction (nothing installed,
       non-zero exit) on any shim conflict. `--force=all`: auto-accept
       everything, but log every overwritten shim. Interactive mode is
       accept-whole-transaction-or-abort (no per-item selection).
-- [ ] Shim scheme: single `~/.scripticus/bin` directory added to PATH once at
+- [x] Shim scheme: single `~/.scripticus/bin` directory added to PATH once at
       Scripticus install time. POSIX: symlink or one-line wrapper. Windows:
       generated `.cmd` shim invoking the correct interpreter (no compiled
       shims needed).
-- [ ] Command-name collisions: last-install-wins, with `use` to manually
+- [x] Command-name collisions: last-install-wins, with `use` to manually
       re-point a shim, and namespaced invocation always available to
       disambiguate.
 - [ ] Local install-state file (lockfile-style): installed packages, resolved
