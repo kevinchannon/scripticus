@@ -96,8 +96,25 @@ control rather than cryptographic assurance.
 
 ### Client (CLI)
 
-- [ ] Python CLI: `search`, `install`, `update`, `uninstall`, `publish`,
-      `new`, `pack`, `use`, `config`.
+The command surface at a glance (details in the checklist below and usage
+docs in the client README):
+
+| Command                     | Purpose                                                | Status      |
+| --------------------------- | ------------------------------------------------------ | ----------- |
+| `new <lang> <name> -n <ns>` | Scaffold a package directory                           | Implemented |
+| `pack <dir> [-o <dir>]`     | Archive a package into distributable artifacts         | Implemented |
+| `install -f <archive>`      | Install from a local archive                           | Implemented |
+| `uninstall <pkg>`           | Remove a package's files and shims                     | Implemented |
+| `use <pkg> <command>`       | Re-point a command shim at an installed package        | Implemented |
+| `login <name> [<url>]`      | Store a Gitea token; register a remote first time      | Implemented |
+| `publish <path-prefix>`     | Publish packed archives to a remote, as one batch      | Implemented |
+| `install <ns/name>[@ver]`   | Install from a remote, with dependency resolution      | Planned     |
+| `search <query>`            | Search the index                                       | Planned     |
+| `update [<pkg>]`            | Update installed remote-provenance packages            | Planned     |
+| `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Planned     |
+| `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
+| `yank <ns/name>@<ver>`      | Hide a published version from search/latest            | Planned     |
+| `run <ns/name> -- <args>`   | Invoke a package's command by its namespaced identity  | Planned     |
 - [x] `pack <dir> [-o <dir>]`: validate the manifest, then archive the
       package directory with wheel-style filename tags — one archive per
       format the declared targets call for (`.tar.gz` for POSIX/macOS,
@@ -123,6 +140,13 @@ control rather than cryptographic assurance.
       Scripticus install time. POSIX: symlink or one-line wrapper. Windows:
       generated `.cmd` shim invoking the correct interpreter (no compiled
       shims needed).
+- [ ] `init`: the one-shot post-install bootstrap the shim scheme's
+      "added to PATH once at install time" premise relies on — pip cannot
+      edit a shell profile, so a command must: idempotently add
+      `~/.scripticus/bin` to the persistent PATH (shell profile on POSIX,
+      the user PATH on Windows), pre-create the client state skeleton so
+      the PATH entry isn't dangling, and tell the user to restart their
+      shell.
 - [x] Command-name collisions: last-install-wins, with `use` to manually
       re-point a shim, and namespaced invocation always available to
       disambiguate.
