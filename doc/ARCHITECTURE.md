@@ -184,12 +184,12 @@ a batch of one, validated against already-committed index state.
   shim/bin directory (D11). Version-qualified shims to relax this are a
   post-v1 option (D42), with D38's fully-qualified tier as the hook.
 - **Tool requirements** resolve across the boundary (D43): the server
-  aggregates each tool's required version window over the closure (via the
-  shared primitive); the client checks those windows against its local
-  package manager — satisfiability and conflict with installed tools —
-  before any install, then installs the accumulated set in one pass. v1
-  is name-only (presence/installability); versioned tool windows are a
-  fast-follow needing a manifest/schema extension.
+  aggregates each tool's requirement over the closure; the client checks
+  them against the local machine and installs the missing set by shelling
+  out to an operator-configured command (D44 — see Tool installation
+  below), before installing any package. v1 is name-only (PATH presence);
+  versioned tool windows are a fast-follow needing a manifest/schema
+  extension.
 - **Blob download is direct**: `resolve` returns Gitea download pointers
   and the client fetches artifacts from Gitea itself with its stored token
   (D9) — no companion download endpoint — keeping the index service off
@@ -263,9 +263,10 @@ Everything lives under `~/.scripticus/`:
 - **`config.toml`** — the remotes list as an ordered `[[remotes]]` array of
   `{ name, url }` tables (D35); array order is both search-path priority
   (doubling as the bare-name namespace search path, D5) and `publish`'s
-  default target, plus other defaults. Distributable org-wide via
-  `scripticus config install <git-url>` (Conan-style). No Conan-style
-  profiles.
+  default target, plus other defaults. Optionally a `[tools]` table whose
+  `install` command Scripticus shells out to for system-tool installation
+  (D44). Distributable org-wide via `scripticus config install <git-url>`
+  (Conan-style). No Conan-style profiles.
 - **`credentials.toml`** — Gitea personal access tokens, one per remote,
   stored plaintext with 0600 permissions (cargo-style, D34), keyed by
   remote URL. Registered via `scripticus login <name>` (resolving an
@@ -311,6 +312,44 @@ current owner of each affected shim.
   manually; the fully-qualified `<namespace>.<package>.<command>` shim never
   collides, so every installed command stays invocable (D38 — this is why
   no `run` command exists).
+
+### Tool installation
+
+The closure's aggregated system tools (D43) are handled during apply by
+shelling out to an operator-configured command — Scripticus encodes no
+package-manager logic (D44). Flow:
+
+- Each required tool is checked for **presence on `PATH`**; the missing set
+  is the install list. (An install-only command cannot be queried for
+  available versions, so v1 "satisfiability" is presence, not a version
+  window — versioned windows and an optional query/check command are
+  post-v1.)
+- If `config.toml` has `[tools] install`, the missing set is substituted
+  into it — a `{packages}` placeholder (shell-quoted names, space-joined;
+  appended if the placeholder is absent) — and it runs once through the
+  platform shell (`bash -lc` / `cmd /c`) inheriting the process
+  environment. The shell expands env vars, so proxies, mirrors, and
+  credentials come from the machine environment and never sit in the
+  (org-distributable) config.
+
+```toml
+[tools]
+install = "apt-get install -y {packages}"   # no sudo — see below
+```
+
+- **No privilege management.** The command carries no `sudo`/`doas`; if
+  installing tools needs root, the whole `scripticus install` is run as
+  root. Because package files and shims are user-space (`~/.scripticus`),
+  the natural pattern is to provision tools once as root (or pre-install
+  them) and install packages as yourself — running the whole install as
+  root otherwise writes user state under root's home unless
+  `SCRIPTICUS_HOME`/`sudo -E` is set.
+- **No installer configured** → Scripticus never invokes a package
+  manager: missing *required* tools abort the install listing them (with a
+  `--skip-tools` escape), missing *optional* tools are only reported.
+- Tool names originate in third-party manifests, so they are validated to
+  a safe charset (`[A-Za-z0-9][A-Za-z0-9._+-]*`) at manifest parse and
+  shell-quoted at invocation: a manifest cannot inject shell.
 
 ## Forward compatibility (public offering)
 

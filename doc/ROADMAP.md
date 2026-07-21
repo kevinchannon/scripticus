@@ -84,10 +84,13 @@ control rather than cryptographic assurance.
 - [ ] Platform-aware resolution (designed, D42): the client's platform is
       an input to `/resolve` so the correct artifact variant is selected
       automatically.
-- [ ] Tool-dependency resolution (designed, D43): the server aggregates
-      each tool's required version window over the closure; the client
-      checks satisfiability and conflicts against its local package
-      manager before any install. v1 is name-only (presence/installability);
+- [ ] Tool-dependency resolution (designed, D43/D44): the server
+      aggregates each tool requirement over the closure; the client checks
+      PATH presence and installs the missing set by shelling out to an
+      operator-configured `[tools] install` command (no package-manager
+      logic encoded; no `sudo` in the command — run the whole install as
+      root if tools need it). Missing required tools with no installer
+      configured abort with a `--skip-tools` escape. v1 is name-only;
       versioned tool windows are a fast-follow needing a manifest/schema
       extension.
 - [ ] Read path (designed, D42): `/resolve` returns metadata plus direct
@@ -229,6 +232,11 @@ Not scheduled; recorded so v1 decisions do not preclude them.
       Credential Locker), replacing the plaintext `credentials.toml` at rest
       where a keyring is available, with the file kept as the headless/CI
       fallback (hardening on D34's storage model).
+- [ ] Richer tool configuration (beyond v1's single `[tools] install`
+      command, D44): an optional query/check command to verify a tool
+      satisfies a version window rather than mere PATH presence, versioned
+      tool windows (with the manifest/schema extension D43 defers), and
+      per-OS command variants for mixed-fleet org-distributed config.
 - ~~Dot-qualified invocation of namespaced command overloads~~ — promoted
       into v1.0.0 scope by D38 (three-tier shims), in a stronger form than
       sketched here: a guaranteed-unique `<namespace>.<package>.<command>`
