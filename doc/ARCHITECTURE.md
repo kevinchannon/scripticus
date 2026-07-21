@@ -36,7 +36,10 @@ Three components:
    scaffolding, and the interactive install flow.
 
 Deployment target for the server side is a single `docker-compose.yml`
-(index service + Gitea, SQLite-backed for small installations).
+(a reverse proxy fronting the index service + Gitea, SQLite-backed for
+small installations). The proxy presents one user-facing URL and routes
+internally (D45), so clients — and enterprise firewalls — see a single
+endpoint.
 
 ## Package identity
 
@@ -158,6 +161,12 @@ a batch of one, validated against already-committed index state.
   registry has no usable programmatic listing/search; the index database is
   authoritative for discovery).
 - **Resolution** is a server-side solver fed the client's state (D42).
+  `install <namespace/name>[@spec]` resolves against the configured remotes
+  in priority order, stopping at the first whose index has the root; the
+  whole closure resolves there, which is complete because D33 keeps every
+  closure single-remote (cross-remote deps are unsupported in v1 — mirror
+  instead; federation is post-v1, D46). v1 requires the fully-namespaced
+  form; bare-name search (D5) is deferred.
   `POST /resolve` takes the root package (name, optional version/range),
   the client's platform, and the client's installed closure as
   **identities only** — each installed package as
@@ -190,10 +199,13 @@ a batch of one, validated against already-committed index state.
   below), before installing any package. v1 is name-only (PATH presence);
   versioned tool windows are a fast-follow needing a manifest/schema
   extension.
-- **Blob download is direct**: `resolve` returns Gitea download pointers
-  and the client fetches artifacts from Gitea itself with its stored token
-  (D9) — no companion download endpoint — keeping the index service off
-  the data path (npm-style split of metadata vs tarball fetch).
+- **Blob download bypasses the index application**: `resolve` returns
+  download pointers as paths relative to the remote's front URL; the client
+  fetches `{remote.url}{pointer}` with its stored Gitea token, and the
+  bundled reverse proxy (D45) routes blob paths to Gitea. One URL for the
+  client, no Gitea address to discover, and the index *app* stays off the
+  data path (D9 — the proxy carries the bytes, npm-style metadata/tarball
+  split).
 - The client verifies the content hash of every downloaded artifact against
   the resolved hash before installing. Downloads **stage-then-commit** —
   every blob fetched and verified before any unpack/shim — mirroring
@@ -348,6 +360,12 @@ escalate = "sudo"                            # machine-set; how to elevate
   alone — not by running all of `scripticus install` as root. Note a
   scrubbing escalator (`sudo` by default) drops proxy/credential env vars;
   the operator preserves them via the prefix (`sudo -E`) or sudoers.
+- The tool command runs **before any package file or shim is written**, so
+  a tool failure aborts the install before package mutation begins. This is
+  the v1 form of "check tools first": a non-mutating dry-run cannot be
+  synthesised from an opaque, possibly non-interactive command, so
+  tools-first ordering is the guarantee (an optional `[tools] check`
+  dry-run is the post-v1 route to a true pre-flight).
 - **No installer configured** → Scripticus never invokes a package
   manager: missing *required* tools abort the install listing them (with a
   `--skip-tools` escape), missing *optional* tools are only reported.

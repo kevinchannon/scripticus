@@ -113,6 +113,10 @@ control rather than cryptographic assurance.
       configuration change for larger deployments.
 - [x] Deployment as a single `docker-compose.yml` bundling Gitea + the index
       service; SQLite-backed Gitea acceptable for small deployments.
+- [ ] Reverse proxy in the compose bundle presenting one user-facing URL,
+      routing internally to the index service and Gitea (D45), so clients
+      and enterprise firewalls see a single endpoint and download pointers
+      stay relative to it.
 
 ### Client (CLI)
 
@@ -142,12 +146,16 @@ installed command directly invocable by its namespaced names instead.
       package directory with wheel-style filename tags — one archive per
       format the declared targets call for (`.tar.gz` for POSIX/macOS,
       `.zip` for Windows; both when both are targeted, per D26).
-- [ ] `install <ns/name>[@version]` with bare-name resolution via a
-      user-configurable namespace search path (Homebrew-tap-style). Bare names
-      are purely a client-side resolution convenience; stored identity is
-      always fully namespaced. Calls `/resolve` with the installed closure,
-      plans (new installs, version changes, shim + tool conflicts) via the
-      D17 transaction flow, then fetches/verifies/installs (D42/D43).
+- [ ] `install <ns/name>[@version]` from a remote (D46): resolves against
+      the configured remotes in priority order (first hosting the root; the
+      closure is single-remote by D33), `--remote` to force one. Calls
+      `/resolve` with the installed closure, plans (new installs, version
+      changes, shim + tool conflicts) via the D17 transaction flow, then
+      fetches/verifies/installs (D42/D43/D45). v1 requires the
+      fully-namespaced form; bare-name resolution via a user-configurable
+      namespace search path (Homebrew-tap-style, D5) is deferred — bare
+      names are purely a client-side convenience over always-namespaced
+      identities.
 - [x] `install -f|--file <archive>` for local installs (pip-style). Install
       state records provenance (remote vs local file); `update` skips/warns on
       local-provenance packages.
@@ -229,7 +237,14 @@ Not scheduled; recorded so v1 decisions do not preclude them.
       path, not an architecture change).
 - [ ] Curated/reviewed package programme under the reserved `library`
       namespace.
-- [ ] Federation/promotion between internal and public indices.
+- [ ] Federation/promotion between internal and public indices — including
+      cross-remote dependency closures (v1 keeps each closure single-remote,
+      D33/D46; a shared dep on another remote must be mirrored until then).
+      Layers onto D42's resolver as client-side orchestration or
+      server-to-server resolution, not a rework of it.
+- [ ] Bare-name resolution via the D5 namespace search path: settle the
+      config shape (how a namespace maps to a remote) deferred by D46, so
+      `install foo` works without the full `namespace/foo`.
 - [ ] OS-keyring storage for login credentials (Secret Service / Keychain /
       Credential Locker), replacing the plaintext `credentials.toml` at rest
       where a keyring is available, with the file kept as the headless/CI

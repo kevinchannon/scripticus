@@ -1116,8 +1116,8 @@ errors rather than silent sprawl, and matches the shared bin dir (D11).
   the client stays a planner/installer.
 - Good: installed state is honoured (no needless churn, no cross-install
   breakage) without shipping resolution logic client-side.
-- Good: no second endpoint for downloads; resolve pointers are Gitea URLs
-  the client fetches directly.
+- Good: no second endpoint for downloads; resolve pointers are paths the
+  client fetches from the same front URL, routed to Gitea (D45).
 - Bad: the client uploads its installed inventory on every resolve — fine
   within an org, more coupling than a pure GET.
 - Bad: an unsatisfiable window is a hard failure with no side-by-side
@@ -1125,6 +1125,10 @@ errors rather than silent sprawl, and matches the shared bin dir (D11).
   fully-qualified tier as the hook) stay a post-v1 option.
 - Bad: revises the roadmap's "server returns the closure from the root"
   into "resolves given the client's installed state."
+- Note: a directly-installed, user-pinned package may be version-changed
+  when a new install's transitive need requires it (the installed version
+  is a preference, not a pin the solver may not cross); this surfaces as a
+  version-change in the transaction plan, never a silent bump.
 
 ---
 
@@ -1184,10 +1188,15 @@ prefix, `[tools] escalate` (e.g. `"sudo"`, `"doas"`, or empty when already
 root / on Windows-as-admin), prepended to the tool command alone. With no
 `[tools] install` configured, Scripticus never invokes a package manager —
 missing *required* tools abort the install listing them (with a
-`--skip-tools` escape), missing *optional* tools are only reported. v1
-"satisfiability" is PATH presence only; an install-only command cannot be
-queried for versions, so versioned tool windows and an optional
-query/check command are post-v1 (D43). Tool names come from third-party
+`--skip-tools` escape), missing *optional* tools are only reported. The
+tool command runs **before any package file or shim is written**, so a
+tool failure aborts the install before package mutation begins — the v1
+guarantee behind "check tools before installing packages" (a non-mutating
+dry-run cannot be synthesised from an opaque command, which may be
+non-interactive; a configured `[tools] check` dry-run is the post-v1 way
+to get one). v1 "satisfiability" is PATH presence only; an install-only
+command cannot be queried for versions, so versioned tool windows and an
+optional query/check command are post-v1 (D43). Tool names come from third-party
 manifests, so they are validated to `[A-Za-z0-9][A-Za-z0-9._+-]*` at
 manifest parse and shell-quoted at invocation — a manifest cannot inject
 shell.
@@ -1222,3 +1231,77 @@ sudo/doas/root/Windows, and keeps privilege out of package-authored data.
   sudoers config; Scripticus does not paper over it.
 - Bad: PATH presence is coarse — a tool present but too old is not caught
   until versioned windows land (post-v1).
+
+---
+
+## D45. One front URL: a reverse proxy in the compose bundle routes to index + Gitea
+
+**Decision**: The `docker-compose.yml` registry bundle gains a reverse
+proxy as the single user-facing endpoint; the index service and Gitea sit
+behind it on the internal network. A client points at one URL (the
+remote's `url`) for everything: index calls (`/resolve`, `/search`,
+`/packages/...`, `/publish`, `/whoami`) route to the index service, and
+blob paths (`/api/packages/.../generic/...`) route to Gitea. Resolve
+therefore returns download pointers as **paths relative to that same front
+URL** — the client fetches `{remote.url}{pointer}` with its stored Gitea
+token (the proxy forwards the `Authorization` header) and never learns
+Gitea's internal address. Reads still bypass the index *application* (D9):
+the proxy is dumb pass-through infrastructure, not the index app touching
+blob bytes. The internal index→Gitea calls (auth, publish uploads) use the
+internal address, not the proxy.
+
+**Reason**: Exposing a second URL/port for direct Gitea downloads is
+low-impact on paper but expensive in enterprise IT — new firewall holes,
+per-endpoint authorisations, TLS certs. One front URL is one thing to get
+approved. Keeping download pointers relative to it means the client needs
+no Gitea address or second credential realm, and D9's "index off the data
+path" survives because the proxy, not the index service, carries the
+bytes.
+
+**Consequences**:
+- Good: a single URL/port to authorise, firewall, and put a cert on.
+- Good: the client's download addressing is trivial — same origin as the
+  index, same token; no Gitea URL to discover or configure.
+- Good: D9 intact — the index application never proxies blob bytes.
+- Bad: another moving part in the bundle, and a routing rule set that must
+  keep index paths and Gitea paths from colliding (the index API can be
+  mounted under a reserved prefix if a Gitea route ever clashes).
+- Bad: split deployments that forgo the bundled proxy must reproduce the
+  single-front routing themselves for relative pointers to resolve.
+
+---
+
+## D46. Client remote install: one remote per closure, fully-namespaced only in v1
+
+**Decision**: `scripticus install <namespace/name>[@spec]` resolves
+against the configured remotes in priority order, stopping at the first
+whose index has the root package; the whole closure resolves there. This
+is complete because D33 guarantees every publishable closure is
+single-remote — a dependency target must already exist in the *same* index
+at publish, so a closure can never span remotes. Cross-remote
+dependencies are therefore unsupported in v1: a package needed from
+another remote must be mirrored into the resolving remote (the
+Artifactory/Nexus pattern); true federation across remotes is post-v1 and
+is not precluded by D42's server-side resolver (it layers on as
+client-side orchestration or server-to-server resolution later). v1
+requires the fully-namespaced form; bare-name resolution via the D5
+namespace search path is deferred (its config shape — how a namespace maps
+to a remote — is not yet pinned). `--remote <name>` forces a specific
+remote.
+
+**Reason**: Closed-world-per-remote is what D33 already enforces, so
+single-remote resolution is correct rather than a limitation invented
+here, and it keeps the server-side resolver (D42) valid — no server needs
+packages it does not host. Requiring fully-namespaced names for v1 sidesteps
+the still-undesigned search-path config without blocking the read path,
+since bare names are only a convenience over identities that are always
+fully namespaced anyway (D4/D5).
+
+**Consequences**:
+- Good: resolution stays a single `/resolve` call to one remote; the
+  server-side model holds unchanged.
+- Good: v1 ships without settling the namespace-search-path config.
+- Bad: no cross-remote dependency closures — shared/public deps must be
+  mirrored until federation lands (post-v1).
+- Bad: bare-name `install foo` does not work yet; users type
+  `ns/foo` until the search path is designed.

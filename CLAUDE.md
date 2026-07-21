@@ -69,7 +69,8 @@ consumes it — resolve-then-fetch, direct-from-Gitea downloads with
 hash verification, and the client-side tool satisfiability/conflict
 checks. A server `Dockerfile` exists,
 and the root `docker-compose.yml` is the two-service registry bundle
-(index service + Gitea). The design docs below
+(index service + Gitea); a reverse-proxy front presenting one user-facing
+URL (D45) is designed but not yet added. The design docs below
 describe the intended v1.0.0
 and remain the source of truth for architecture.
 
@@ -136,7 +137,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D44). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D46). Each
   entry has decision, reasoning, and consequences (good *and* bad). Entries
   stay terse — match the register of D1–D11 (a tight Decision paragraph, a
   tight Reason, short consequence bullets). Architectural elaboration of a
