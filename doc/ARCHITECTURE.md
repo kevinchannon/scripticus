@@ -88,6 +88,33 @@ Scripticus performs **no correctness verification** of manifest claims
 undecidable in general, and a partial check gives false confidence.
 Correctness is the package author's responsibility.
 
+### Version specifications
+
+A dependency spec — the string value of a `[dependencies.packages]` entry
+and the `@<spec>` in `install pkg@<spec>` — is an npm/cargo-style range,
+parsed by `scripticus_schema.version_spec`. The grammar:
+
+- **Caret** `^1.2.3`: `>=1.2.3` and `<2.0.0`. The upper bound comes from
+  the left-most non-zero component, so `^0.2.3` is `<0.3.0` and `^0.0.3`
+  is `<0.0.4`. The operand may be partial: `^1`, `^1.2`.
+- **Comparators** `>= > <= < =`, with a comma as AND (intersection), e.g.
+  `>=1.2, <2.0.0`. Partial operands pad with zeros (`>=1.2` is `>=1.2.0`).
+- **Bare full version** `1.4.3`: an exact match (equivalent to `=1.4.3`).
+  A bare *partial* (`1.2`) is rejected as ambiguous — npm reads it as
+  `1.2.x`, cargo as `^1.2` — so the author must write `^1.2` or `1.2.0`.
+- **`*`** (or the empty string): any released version.
+
+Prereleases are opt-in: a prerelease version (`1.0.0-rc1`) is selected
+only by an exact pin equal to it; caret and comparator ranges never match
+a prerelease candidate, so a plain `install foo` never surprises anyone
+with a release candidate. This is stricter than npm's same-core rule — a
+deliberate simplification a future need could revisit.
+
+The module also exposes `select_version(specs, candidates)` — the highest
+candidate satisfying every spec, or none for an empty window. This is the
+reusable **version-window primitive** the resolver runs for packages
+(against the index) and tools (against the local package manager, D42/D43).
+
 ## Write path (publish)
 
 Publish is a **single atomic request** from the client's perspective:

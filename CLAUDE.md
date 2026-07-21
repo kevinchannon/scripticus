@@ -39,7 +39,8 @@ content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
 models for the read API (`index_api.py`, D30), publish response
 (`publish_api.py`, D32), and token verification (`whoami_api.py`, D40),
 and the version-spec grammar plus the reusable version-window primitive
-(`version_spec.py`, D44). Only code meeting D29's admission rule (defines
+(`version_spec.py`; grammar documented in ARCHITECTURE.md, primitive
+serving D42/D43). Only code meeting D29's admission rule (defines
 what a package is, or how client and server communicate) may go there. Client-side state goes under `~/.scripticus/`
 (override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
 FastAPI app (`app.py`) exposing `GET /health`, `GET /version`,
@@ -135,7 +136,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D44). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D43). Each
   entry has decision, reasoning, and consequences (good *and* bad). Entries
   stay terse — match the register of D1–D11 (a tight Decision paragraph, a
   tight Reason, short consequence bullets). Architectural elaboration of a

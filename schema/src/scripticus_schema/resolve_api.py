@@ -19,7 +19,7 @@ class InstalledPackage(BaseModel):
 
 class ResolveRequest(BaseModel):
     root: str  # "namespace/name"
-    spec: str = ""  # version spec (D44); "" or "*" means latest release
+    spec: str = ""  # version spec (grammar in ARCHITECTURE.md); "" is latest
     platform: str  # the client's OS: the artifact variant is chosen for it
     installed: list[InstalledPackage] = Field(default_factory=list)
 
