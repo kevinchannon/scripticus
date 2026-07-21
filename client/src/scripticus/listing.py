@@ -8,9 +8,11 @@ installed section (and touches no network); ``--available`` to the registry
 section. Where ``search`` matches package *content* (D48), ``list``
 enumerates *identity* deterministically.
 
-The available half reuses ``search_remotes`` with an empty query to pull each
-remote's whole catalog, then globs it client-side — fine at v1 registry scale
-(D49). Unlike ``search``, ``list`` deduplicates an identity across remotes
+The available half asks each remote's ``GET /packages`` to apply the glob
+server-side (D50), so the client no longer downloads the whole catalog. The
+installed half is globbed on the client, against the lockfile — both sides use
+the same ``scripticus_schema.identity_glob`` primitive so their matches agree
+exactly. Unlike ``search``, ``list`` deduplicates an identity across remotes
 (highest-priority remote wins), since enumerating the same package twice is
 noise. A missing or unreachable registry degrades the ``list`` (both-section)
 form to a warning rather than blanking the installed section it could still
@@ -18,13 +20,13 @@ show; ``--available`` on its own still errors, as there is nothing else to
 show.
 """
 
-import fnmatch
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from scripticus.config import Remote, find_remote
 from scripticus.install import read_lockfile
-from scripticus.search import SearchError, search_remotes
+from scripticus.search import SearchError, catalog_remotes
+from scripticus_schema.identity_glob import matches as identity_matches
 
 
 @dataclass
@@ -44,17 +46,6 @@ class Listing:
     installed: list[Entry]
     available: list[Entry]
     warnings: list[str] = field(default_factory=list)
-
-
-def _matches(pattern: str | None, namespace: str, name: str) -> bool:
-    """Shell-glob a package's identity. A pattern containing ``/`` matches the
-    full ``namespace/name`` (so ``acme/*`` scopes by namespace); a bare pattern
-    matches the name alone (so ``db-*`` finds it in any namespace). No pattern
-    matches everything."""
-    if not pattern:
-        return True
-    target = f"{namespace}/{name}" if "/" in pattern else name
-    return fnmatch.fnmatch(target, pattern)
 
 
 def build_listing(
@@ -80,7 +71,7 @@ def build_listing(
         installed = [
             Entry(entry["namespace"], entry["name"], entry["version"])
             for entry in lock["packages"]
-            if _matches(glob, entry["namespace"], entry["name"])
+            if identity_matches(glob, entry["namespace"], entry["name"])
         ]
         installed.sort(key=lambda e: (e.namespace, e.name))
 
@@ -88,7 +79,9 @@ def build_listing(
     warnings: list[str] = []
     if scope in ("all", "available"):
         try:
-            outcome = search_remotes(remotes, forced, "", None, None)
+            # The remote applies the glob (D50); the client only excludes what's
+            # installed and dedupes an identity across remotes.
+            outcome = catalog_remotes(remotes, forced, glob)
         except SearchError as exc:
             if scope == "available":
                 raise
@@ -98,7 +91,7 @@ def build_listing(
             seen: set[tuple[str, str]] = set()
             for hit in outcome.hits:
                 key = (hit.package.namespace, hit.package.name)
-                if key in installed_ids or key in seen or not _matches(glob, *key):
+                if key in installed_ids or key in seen:
                     continue
                 seen.add(key)
                 available.append(

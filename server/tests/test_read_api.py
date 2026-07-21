@@ -99,6 +99,54 @@ def test_search_matches_name_substring(client, session_factory):
     assert [r["name"] for r in results] == ["my-tool"]
 
 
+def test_list_packages_lists_everything_without_a_glob(client, session_factory):
+    add_package(session_factory, "aaa", "zzz", [("1.0.0", {})])
+    add_package(session_factory, "kevin-c", "my-tool", [("2.1.0", {})])
+    results = client.get("/packages").json()["results"]
+    assert [(r["namespace"], r["name"], r["latest_version"]) for r in results] == [
+        ("aaa", "zzz", "1.0.0"),
+        ("kevin-c", "my-tool", "2.1.0"),
+    ]
+
+
+def test_list_packages_glob_with_slash_scopes_by_namespace(client, session_factory):
+    add_package(session_factory, "acme", "one", [("1.0.0", {})])
+    add_package(session_factory, "infra", "two", [("1.0.0", {})])
+    results = client.get("/packages", params={"glob": "acme/*"}).json()["results"]
+    assert [r["namespace"] for r in results] == ["acme"]
+
+
+def test_list_packages_bare_glob_matches_name_across_namespaces(client, session_factory):
+    add_package(session_factory, "acme", "db-backup", [("1.0.0", {})])
+    add_package(session_factory, "infra", "logrotate", [("1.0.0", {})])
+    results = client.get("/packages", params={"glob": "db-*"}).json()["results"]
+    assert [r["name"] for r in results] == ["db-backup"]
+
+
+def test_list_packages_glob_supports_character_classes(client, session_factory):
+    # A LIKE translation would drop [seq]; fnmatch must honour it (D50).
+    add_package(session_factory, "acme", "tool-a", [("1.0.0", {})])
+    add_package(session_factory, "acme", "tool-b", [("1.0.0", {})])
+    add_package(session_factory, "acme", "tool-c", [("1.0.0", {})])
+    results = client.get("/packages", params={"glob": "tool-[ab]"}).json()["results"]
+    assert [r["name"] for r in results] == ["tool-a", "tool-b"]
+
+
+def test_list_packages_excludes_fully_yanked_packages(client, session_factory):
+    add_package(session_factory, "acme", "gone", [("1.0.0", {"yanked": True})])
+    add_package(session_factory, "acme", "here", [("1.0.0", {})])
+    results = client.get("/packages").json()["results"]
+    assert [r["name"] for r in results] == ["here"]
+
+
+def test_list_packages_reports_latest_non_yanked_version(client, session_factory):
+    add_package(
+        session_factory, "acme", "tool", [("1.0.0", {}), ("2.0.0", {"yanked": True})]
+    )
+    results = client.get("/packages", params={"glob": "acme/*"}).json()["results"]
+    assert results[0]["latest_version"] == "1.0.0"
+
+
 def test_search_matches_description(client, session_factory):
     add_package(
         session_factory, "kevin-c", "rotate", [("1.0.0", {"description": "prune backups"})]

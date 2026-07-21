@@ -170,9 +170,13 @@ a batch of one, validated against already-committed index state.
   all-remotes failure is fatal (D48). The calls carry no token — `/search` is
   an anonymous read. `list` is dnf-style: an **Installed** section from the
   local lockfile and an **Available** section from the remotes' catalog (minus
-  what's installed), with `--installed`/`--available` to restrict; its
-  available half reuses `/search`'s empty-query catalog and globs client-side,
-  deduplicating an identity across remotes (a v1-scale choice, D49).
+  what's installed), with `--installed`/`--available` to restrict. The glob
+  runs server-side via `GET /packages` (the identity counterpart to
+  `/search`'s content match); the installed section is globbed on the client
+  against the lockfile, using the *same* `scripticus_schema.identity_glob`
+  primitive so the two sections agree exactly — `fnmatch`, never SQL `LIKE`
+  (D50). `list` deduplicates an identity across remotes, deliberately unlike
+  `search`.
 - **Resolution** is a server-side solver fed the client's state (D42).
   `install <namespace/name>[@spec]` resolves against the configured remotes
   in priority order, stopping at the first whose index has the root; the

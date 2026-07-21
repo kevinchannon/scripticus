@@ -16,6 +16,7 @@ all-remotes failure (or no remotes at all) is a hard error. No token is sent —
 ``/search`` is an anonymous read.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
@@ -55,39 +56,32 @@ def _detail(response: httpx.Response) -> str:
         return response.text
 
 
-def _search_on(
-    remote: Remote, query: str, platform: str | None, language: str | None
-) -> list[PackageSummary]:
-    """GET ``/search`` on one remote. Raises SearchError on transport or
-    non-200 failure — the caller decides whether that sinks the whole search
-    or just drops this remote."""
-    params: dict[str, str] = {"q": query}
-    if platform is not None:
-        params["platform"] = platform
-    if language is not None:
-        params["language"] = language
+def _get(remote: Remote, path: str, params: dict[str, str], verb: str) -> list[PackageSummary]:
+    """GET a read endpoint returning ``SearchResults`` on one remote. Raises
+    SearchError on transport or non-200 failure — the caller decides whether
+    that sinks the whole query or just drops this remote."""
     try:
         with _client() as client:
-            response = client.get(remote.url.rstrip("/") + "/search", params=params)
+            response = client.get(remote.url.rstrip("/") + path, params=params)
     except httpx.HTTPError as exc:
         raise SearchError(f"cannot reach '{remote.name}' ({remote.url}): {exc}") from exc
     if response.status_code != 200:
         raise SearchError(
-            f"search on '{remote.name}' failed ({response.status_code}): {_detail(response)}"
+            f"{verb} on '{remote.name}' failed ({response.status_code}): {_detail(response)}"
         )
     return SearchResults.model_validate(response.json()).results
 
 
-def search_remotes(
+def _fan_out(
     remotes: list[Remote],
     forced: str | None,
-    query: str,
-    platform: str | None,
-    language: str | None,
+    fetch: "Callable[[Remote], list[PackageSummary]]",
 ) -> SearchOutcome:
-    """Search ``query`` across the configured remotes (or the forced one),
-    merging hits in remote-priority order. A remote that fails is collected as
-    a warning; only an all-remotes failure is a hard SearchError (D48)."""
+    """Run ``fetch`` against the configured remotes (or the forced one),
+    tagging each result with its remote in priority order. A remote that fails
+    is collected as a warning; only an all-remotes failure is a hard
+    SearchError. The shared fan-out/resilience policy for search and list
+    (D48/D50)."""
     if forced is not None:
         remote = find_remote(remotes, forced)
         if remote is None:
@@ -105,7 +99,7 @@ def search_remotes(
     warnings: list[str] = []
     for remote in targets:
         try:
-            results = _search_on(remote, query, platform, language)
+            results = fetch(remote)
         except SearchError as exc:
             warnings.append(str(exc))
             continue
@@ -114,3 +108,29 @@ def search_remotes(
     if warnings and len(warnings) == len(targets):
         raise SearchError("; ".join(warnings))
     return SearchOutcome(hits=hits, warnings=warnings)
+
+
+def search_remotes(
+    remotes: list[Remote],
+    forced: str | None,
+    query: str,
+    platform: str | None,
+    language: str | None,
+) -> SearchOutcome:
+    """Content search (D48): match ``query`` against package name/description/
+    command names across the remotes, merged in priority order."""
+    params: dict[str, str] = {"q": query}
+    if platform is not None:
+        params["platform"] = platform
+    if language is not None:
+        params["language"] = language
+    return _fan_out(remotes, forced, lambda remote: _get(remote, "/search", params, "search"))
+
+
+def catalog_remotes(remotes: list[Remote], forced: str | None, glob: str | None) -> SearchOutcome:
+    """Identity listing (D50): the packages whose ``namespace/name`` satisfies
+    ``glob`` (server-side, via ``/packages``), merged across the remotes. The
+    server owns the glob so its match agrees with the client's installed-side
+    filtering."""
+    params = {} if glob is None else {"glob": glob}
+    return _fan_out(remotes, forced, lambda remote: _get(remote, "/packages", params, "listing"))

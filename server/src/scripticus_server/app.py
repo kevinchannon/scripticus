@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from scripticus_schema.identity_glob import matches as identity_matches
 from scripticus_schema.index_api import (
     PackageSummary,
     PackageVersions,
@@ -147,13 +148,42 @@ def search(
         ]
         if not candidates or not _matches_query(package, candidates, q):
             continue
-        latest = max(candidates, key=lambda pv: semver_key(pv.version))
-        results.append(
-            PackageSummary(
-                namespace=package.namespace.name,
-                name=package.name,
-                description=latest.description,
-                latest_version=latest.version,
-            )
-        )
+        results.append(_summarize(package, candidates))
+    return SearchResults(results=results)
+
+
+def _summarize(package: db.Package, candidates: list[db.PackageVersion]) -> PackageSummary:
+    """A package's search/list row: identity plus its latest non-yanked
+    version's number and description."""
+    latest = max(candidates, key=lambda pv: semver_key(pv.version))
+    return PackageSummary(
+        namespace=package.namespace.name,
+        name=package.name,
+        description=latest.description,
+        latest_version=latest.version,
+    )
+
+
+@app.get("/packages")
+def list_packages(
+    glob: str | None = None,
+    session: Session = Depends(get_session),
+) -> SearchResults:
+    """Identity enumeration (D50): every package whose ``namespace/name``
+    satisfies the shell ``glob`` (absent = all), each at its latest non-yanked
+    version. The counterpart to ``/search``'s content match — same wire model,
+    but filtered by identity, not content. A fully-yanked package is invisible
+    here too. The glob is applied with the shared ``fnmatch`` primitive so the
+    client's installed-side filtering agrees exactly (never SQL ``LIKE``)."""
+    packages = session.scalars(
+        select(db.Package).join(db.Namespace).order_by(db.Namespace.name, db.Package.name)
+    ).all()
+    results = []
+    for package in packages:
+        if not identity_matches(glob, package.namespace.name, package.name):
+            continue
+        candidates = [pv for pv in package.versions if not pv.yanked]
+        if not candidates:
+            continue
+        results.append(_summarize(package, candidates))
     return SearchResults(results=results)

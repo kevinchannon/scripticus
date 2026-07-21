@@ -58,8 +58,10 @@ control rather than cryptographic assurance.
 
 - [x] Python service (FastAPI) fronting a Gitea instance used as the
       storage/auth/namespace substrate (generic package registry).
-- [x] Owns the package index: manifest-aware search (name, tags, platform,
-      language), version listing, and resolution.
+- [x] Owns the package index: content search (`/search` — name, description,
+      command names, plus platform/language filters; tags deferred), identity
+      listing (`/packages` — `namespace/name` glob, D50), version listing, and
+      resolution.
 - [x] Batch atomic publish: the client sends one or more archives — a
       version's whole format-group set — plus manifests to the index
       service in a single request; the service validates every archive
@@ -224,12 +226,14 @@ installed command directly invocable by its namespaced names instead.
       plus optional `--platform`/`--language` filters. `--remote` restricts to
       one. Best-effort: a down/erroring remote is a warning, only an
       all-remotes failure is fatal; the call is anonymous (no token).
-- [x] `list [glob]` (D49): dnf-style enumeration over *identity* — a shell
+- [x] `list [glob]` (D49/D50): dnf-style enumeration over *identity* — a shell
       glob over `namespace/name`, showing an Installed section (local
       lockfile) and an Available section (remotes' catalog minus what's
       installed). `--installed` (offline) / `--available` restrict; `--remote`
-      picks the registry. Complements `search`'s content match; gives
-      Scripticus its first installed-listing.
+      picks the registry. The glob runs server-side via `GET /packages`; both
+      sections share one `fnmatch` primitive in `schema/` so they agree
+      (D50). Complements `search`'s content match; gives Scripticus its first
+      installed-listing.
 - [ ] `config install <git-url>` to roll out org-wide client configuration
       (remotes, defaults) in one command (Conan-style).
 - [x] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with

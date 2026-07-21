@@ -50,8 +50,10 @@ with its remote; content match over name/description/command names,
 down remote is a warning not a failure, anonymous read), `list` (D49 —
 `listing.py`: dnf-style identity enumeration with a shell glob over
 `namespace/name` — an Installed section from the lockfile and an Available
-section from the remotes' catalog minus what's installed, `--installed`
-(offline) / `--available` to restrict), and `init` (post-install PATH bootstrap, D39 —
+section from the remotes' `GET /packages` catalog minus what's installed,
+`--installed` (offline) / `--available` to restrict; the glob runs
+server-side via the shared `scripticus_schema.identity_glob` primitive so the
+installed and available halves match identically, D50), and `init` (post-install PATH bootstrap, D39 —
 `init.py`). The contract code lives in `schema/` (`scripticus_schema`):
 the Pydantic manifest model and validation (`manifest.py`), the D3/D27
 content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
@@ -61,15 +63,19 @@ identities, the response the resolved closure with each package's command
 map, D47), publish response (`publish_api.py`, D32), and token verification
 (`whoami_api.py`, D40), and the version-spec grammar plus the reusable
 version-window primitive (`version_spec.py`; grammar documented in
-ARCHITECTURE.md, primitive serving D42/D43), and the manifest's tool-name
-charset validation (D44). Only code meeting D29's admission rule (defines
+ARCHITECTURE.md, primitive serving D42/D43), the manifest's tool-name
+charset validation (D44), and the shared `namespace/name` glob primitive
+(`identity_glob.py`, D50 — one `fnmatch` rule both sides of `list` use so
+installed and available filtering agree). Only code meeting D29's admission rule (defines
 what a package is, or how client and server communicate) may go there. Client-side state goes under `~/.scripticus/`
 (override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
 FastAPI app (`app.py`) exposing `GET /health`, `GET /version`,
 `GET /whoami` (pass-through Gitea token verification, D40), and the
 read endpoints — `GET /packages/{namespace}/{name}` (version listing),
 `GET /search` (case-insensitive content match over name/description/command
-names plus `platform`/`language` filters, D49), and `POST /resolve` (the D42/D43 resolver — `resolve.py`:
+names plus `platform`/`language` filters, D49), `GET /packages` (identity
+listing: a `namespace/name` glob via the shared `fnmatch` primitive, D50),
+and `POST /resolve` (the D42/D43 resolver — `resolve.py`:
 a backtracking solver over an `Index` abstraction, fed the client's
 installed closure as identities and hard constraints, single-version-per-
 closure, aggregating tool requirements name-only for v1 and returning each

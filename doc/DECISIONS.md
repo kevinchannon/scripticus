@@ -1417,6 +1417,44 @@ need it.
 - Bad: two verbs where a naive design has one; users must learn which is
   which (content vs identity).
 - Bad: `list`'s available half pulls the whole catalog to glob locally — a
-  known v1-scale shortcut that a server-side glob would later replace.
+  known v1-scale shortcut, since superseded by D50's server-side glob.
 - Bad: tags/keywords remain unsearchable until a separate manifest decision
   adds them to `PackageMeta` and the index.
+
+---
+
+## D50. `list`'s glob runs server-side, via a shared `fnmatch` primitive
+
+**Decision**: `list`'s available half asks a new `GET /packages` endpoint to
+apply the identity glob, instead of pulling the whole catalog and globbing on
+the client (superseding that part of D49). `/packages` is the identity
+counterpart to `/search`'s content match — same `SearchResults` wire model,
+filtered by a `namespace/name` glob, absent glob meaning all, fully-yanked
+packages invisible. The glob-match rule lives in `scripticus_schema`
+(`identity_glob.matches`) and is used by *both* the server (available) and the
+client (installed, against the lockfile), so the two sections always agree.
+Matching is `fnmatch`, never SQL `LIKE`.
+
+**Reason**: The client shouldn't download an entire catalog to show a handful
+of rows; the server already holds the index. But the installed section is
+matched client-side and the available section server-side, so a divergent glob
+engine would make one pattern behave two ways — which is exactly what a `LIKE`
+translation causes (`LIKE` has no character classes). One shared `fnmatch`
+primitive in the contract package (D29 — client and server must agree) removes
+that risk. Keeping the glob in application code (not SQL) also sidesteps any
+injection surface and matches the read path's existing load-then-filter style.
+
+**Consequences**:
+- Good: `list --available` sends a glob and gets back only matches — no
+  whole-catalog transfer to the client.
+- Good: installed and available globbing are provably identical (one
+  primitive), including character classes `LIKE` couldn't express.
+- Good: `GET /packages` rounds out the resource — `POST` publishes, `GET`
+  lists, `GET /{ns}/{name}` shows versions.
+- Bad: does *not* make the server's own query scale — `/packages` still loads
+  all packages and filters in Python, like the rest of the read path; a
+  DB-level narrowing (a `LIKE` prefix pre-filter before the `fnmatch` refine)
+  is a later optimisation, not this decision.
+- Bad: `list --available` now needs a server new enough to expose
+  `/packages`; an older one 404s (acceptable pre-v1, everything ships
+  together), with no client fallback.
