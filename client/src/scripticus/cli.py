@@ -8,6 +8,8 @@ from rich.console import Console
 from rich.markup import escape
 
 from scripticus import __version__, scaffold
+from scripticus.config import ConfigError, load_remotes, save_remotes
+from scripticus.credentials import set_token
 from scripticus.install import (
     InstallError,
     Transaction,
@@ -16,6 +18,7 @@ from scripticus.install import (
     read_lockfile,
     scripticus_home,
 )
+from scripticus.login import LoginError, prepare_login
 from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
 from scripticus.uninstall import (
@@ -342,6 +345,36 @@ def _prompt_replacement(
     candidate = candidates[choice - 1]
     install_replacement(candidate, command, lock, home)
     console.print(f"'{command}' now points at {candidate.package_id} {candidate.version}")
+
+
+@app.command()
+def login(
+    remote: str = typer.Argument(
+        ...,
+        help="Name of the remote to log in to.",
+    ),
+    url: Optional[str] = typer.Argument(
+        None,
+        help="The remote's URL — required the first time, when the remote"
+        " isn't in config.toml yet (this registers it too).",
+    ),
+) -> None:
+    """Store a Gitea access token for a remote (registering it if new)."""
+    home = scripticus_home()
+
+    try:
+        remotes = load_remotes(home)
+        target, updated_remotes = prepare_login(remote, url, remotes)
+        if updated_remotes is not None:
+            # Fail before the token prompt if config can't be written.
+            save_remotes(home, updated_remotes)
+    except (ConfigError, LoginError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    token = typer.prompt("Token", hide_input=True)
+    set_token(home, target.url, token)
+    console.print(f"Logged in to [bold]{target.name}[/bold] ({target.url})")
 
 
 @app.command()

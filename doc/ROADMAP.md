@@ -129,7 +129,7 @@ control rather than cryptographic assurance.
 - [ ] Local install-state file (lockfile-style): installed packages, resolved
       versions and hashes, full resolved closure with direct-vs-transitive
       marking, and provenance.
-- [ ] Client config: remotes list as an ordered `[[remotes]]` array of
+- [x] Client config: remotes list as an ordered `[[remotes]]` array of
       `{ name, url }` tables (doubling as the namespace search path; order
       is also `publish`'s default-remote priority, D35) and install state.
       No Conan-style profiles, no separate `default_remote` setting.
@@ -141,7 +141,7 @@ control rather than cryptographic assurance.
       batched request — published together or rejected together, no
       partial-success state (D36/D37). `publish` never invokes `pack`
       itself. `--remote <name>` to target a non-default configured remote.
-- [ ] `login <name>` (existing remote) / `login <name> <url>` (first-time
+- [x] `login <name>` (existing remote) / `login <name> <url>` (first-time
       login, also registers the remote in `config.toml`, D35): store a
       Gitea personal access token per remote in `credentials.toml`
       (plaintext, 0600, cargo-style; a separate file from the
