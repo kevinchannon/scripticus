@@ -381,7 +381,8 @@ def test_remote_install_runs_configured_tool_installer_first(home, tmp_path, mon
 
     result = runner.invoke(app, ["install", "acme/my-tool", "-y"])
     assert result.exit_code == 0, result.output
-    assert ran["argv"] == ["bash", "-lc", "sudo apt-get install -y jq"]
+    shell = ["cmd", "/c"] if os.name == "nt" else ["bash", "-lc"]
+    assert ran["argv"] == [*shell, "sudo apt-get install -y jq"]
     assert (home / "pkgs" / "acme" / "my-tool" / "0.1.0").is_dir()
 
 
