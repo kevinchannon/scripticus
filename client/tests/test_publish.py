@@ -31,7 +31,6 @@ def build_archives(parent: Path, name: str = "my-cool-script") -> list[Path]:
     """
     source = parent / "src" / name
     scaffold_package("python", name, "acme", source.parent)
-    manifest = source / "meta.toml"
     # Python targets every platform, so this packs both format groups.
     return pack_package(source, parent / "builds")
 
