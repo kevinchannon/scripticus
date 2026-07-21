@@ -1078,73 +1078,40 @@ papering over it with careful failure messages.
 
 ## D38. Three-tier command shims: a guaranteed-unique tier, convenience tiers, and no `run` command
 
-**Decision**: Installing a package creates three shims per command in
-D11's single bin directory: fully-qualified
-`<namespace>.<package>.<command>`, namespaced `<namespace>.<command>`,
-and bare `<command>`. The fully-qualified tier is structurally
-collision-free — (namespace, package) is unique registry-wide and
-command names are unique within a package — so every installed command
-is always invocable, unconditionally. The other two tiers are
-conveniences and may collide; collisions at either tier follow D11's
-last-install-wins rule and are surfaced and gated exactly as bare-shim
-conflicts are today (D17's transaction summary, D18's force semantics,
-D28's replacement picker on uninstall). `use` re-points a convenience
-shim by name, the name's dot count selecting the tier (`use foo/d b`
-re-points bare `b`; `use foo/d foo.b` re-points `foo.b`, and only to a
-package in that namespace); the fully-qualified tier is never
-re-pointable — it always means the one thing it names. Convenience
-shims point directly at the fully-qualified shim, never at each other:
-inspecting any shim reveals the true owner in one hop, and re-pointing
-one tier never changes another. Tier membership is recoverable from the
-name alone because namespaces, package names, and command names all
-exclude `.`: one dot-free segment is always a bare command, two
-segments always `<namespace>.<command>`, three always fully qualified —
-no name in one tier can exist in another. (Windows shims remain
-generated `.cmd` files; `foo.b` resolves to `foo.b.cmd` via PATHEXT as
-usual.) The planned `scripticus run` command is dropped: D11's
-"namespaced invocation always available" becomes a property of the bin
-directory rather than a subcommand, and an npx-style ephemeral
-fetch-and-execute was never the intent. The post-v1
-dot-qualified-invocation roadmap item is pulled into v1 scope in a
-stronger form — that sketch imagined only `<namespace>.<command>`,
-which two same-namespace packages providing the same command could
-still contest.
+**Decision**: Each command installs three shims into D11's bin
+directory: `<namespace>.<package>.<command>` (structurally unique —
+(namespace, package) is unique registry-wide, command names unique
+within a package), `<namespace>.<command>`, and bare `<command>`. The
+two convenience tiers may collide; collisions follow D11's
+last-install-wins rule with the existing D17/D18/D28 surfacing, and
+`use` re-points a convenience shim by its literal name (dot count
+selects the tier; a namespaced shim only re-points within its
+namespace). The fully-qualified tier is never re-pointed; convenience
+shims point directly at it. Dot count identifies a shim's tier because
+`.` is excluded from every identifier character set. The planned `run`
+command is dropped, and the post-v1 dot-qualified-invocation roadmap
+item is promoted into v1 in this stronger form (its two-segment sketch
+left same-namespace collisions open).
 
-**Reason**: A `run` command is a subprocess wrapper, and a wrapper must
-re-implement what the operating system already does for any file on
-PATH — argument passing, exit-code propagation, stdin/TTY inheritance,
-signal forwarding — each with POSIX and Windows variants. Shims get all
-of that for free, so the always-invocable guarantee moves from code
-that must be written and maintained to a naming convention the
-installer materialises. The pattern has strong precedent: `python3.11`
-alongside `python3` — every install drops its fully-qualified name
-while a bare convenience points at the current winner. Three tiers
-rather than two because `<namespace>.<command>` alone cannot carry the
-guarantee: command names are unique only within a package, so two
-packages in one namespace can both provide `build` and contest
-`foo.build`. With a fully-qualified tier underneath, both convenience
-tiers can be treated identically — collide, warn, re-point — giving one
-collision rule everywhere instead of a special case per tier. The dot
-was reserved for exactly this when the identifier character sets were
-pinned down: `.` is excluded from namespaces, package names, and
-command names precisely so dotted composition parses unambiguously.
+**Reason**: `run` would be a subprocess wrapper, re-implementing what
+PATH execution gives a shim for free (arguments, exit codes, TTY,
+signals — on both POSIX and Windows); with the fully-qualified tier,
+"namespaced invocation always available" (D11) is structural instead.
+Three tiers rather than two because command names are unique only
+within a package, so `<namespace>.<command>` alone can still be
+contested; with a unique tier underneath, one collision rule covers
+every convenience shim. Precedent: `python3.11` alongside `python3`.
 
 **Consequences**:
-- Good: every installed command is always invocable; the guarantee is
-  structural, with no invocation code path to write or test.
-- Good: one collision rule at every tier — the D17/D18/D28 machinery
-  generalises from "the bare shim" to "any convenience shim" instead of
-  growing a parallel mechanism.
-- Good: ownership is readable from the filesystem — any convenience
-  shim names its fully-qualified target one hop away.
-- Good: `run` is never built; the CLI surface shrinks by one command
-  whose grammar (multi-command packages, installed-only vs
-  fetch-and-run) was never settled.
+- Good: every installed command is always invocable, with no invocation
+  code path to write or test.
+- Good: one collision rule at every tier; D17/D18/D28 generalise rather
+  than growing a parallel mechanism.
+- Good: one command fewer — `run`'s unsettled grammar never needs
+  settling.
 - Bad: three shims per command make `ls ~/.scripticus/bin` noisier.
-- Bad: lockfile ownership bookkeeping changes shape (per-tier shim
-  ownership rather than a flat command list) and the shipped
-  install/uninstall/use code paths must all be revised — this lands on
-  implemented code, not greenfield.
+- Bad: lockfile ownership changes shape (per-tier shims, not a flat
+  command list) and the shipped install/uninstall/use code must be
+  revised.
 - Bad: a default-entrypoint package `foo/a` yields the ugly `foo.a.a` —
-  accepted; it is typed only when both convenience tiers are contested,
-  which is exactly when its existence matters.
+  accepted; it is typed only when both convenience tiers are contested.
