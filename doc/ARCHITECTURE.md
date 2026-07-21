@@ -227,7 +227,13 @@ Everything lives under `~/.scripticus/`:
   time. POSIX shims are symlinks or one-line wrappers; Windows shims are
   generated `.cmd` files invoking the correct interpreter (interpreter choice
   comes from the manifest's language field; no compiled shims needed since
-  targets are scripts, not binaries with DLL dependencies).
+  targets are scripts, not binaries with DLL dependencies). Each command
+  materialises three shims (D38): a guaranteed-unique
+  `<namespace>.<package>.<command>`, a `<namespace>.<command>` convenience,
+  and the bare command name. Convenience shims point directly at the
+  fully-qualified shim, so any shim reveals its true owner in one hop, and
+  a shim name's dot count identifies its tier (the identifier character
+  sets all exclude `.`).
 
 ### Install transaction semantics
 
@@ -243,8 +249,11 @@ current owner of each affected shim.
   aborts the entire transaction (nothing installed, non-zero exit).
 - `--force=all`: auto-accept including overwrites; every overwritten shim is
   reported.
-- Collisions otherwise: last-install-wins, `scripticus use` re-points a shim
-  manually, and namespaced invocation is always available.
+- Collisions otherwise: last-install-wins at both convenience tiers (bare
+  and `<namespace>.<command>`), with `scripticus use` re-pointing either
+  manually; the fully-qualified `<namespace>.<package>.<command>` shim never
+  collides, so every installed command stays invocable (D38 — this is why
+  no `run` command exists).
 
 ## Forward compatibility (public offering)
 

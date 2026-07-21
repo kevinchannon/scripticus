@@ -114,7 +114,10 @@ docs in the client README):
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Planned     |
 | `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
 | `yank <ns/name>@<ver>`      | Hide a published version from search/latest            | Planned     |
-| `run <ns/name> -- <args>`   | Invoke a package's command by its namespaced identity  | Planned     |
+
+There is deliberately no `run` command: D38's three-tier shims make every
+installed command directly invocable by its namespaced names instead.
+
 - [x] `pack <dir> [-o <dir>]`: validate the manifest, then archive the
       package directory with wheel-style filename tags — one archive per
       format the declared targets call for (`.tar.gz` for POSIX/macOS,
@@ -148,8 +151,15 @@ docs in the client README):
       the PATH entry isn't dangling, and tell the user to restart their
       shell.
 - [x] Command-name collisions: last-install-wins, with `use` to manually
-      re-point a shim, and namespaced invocation always available to
-      disambiguate.
+      re-point a shim.
+- [ ] Three-tier shims (D38): every command materialises a
+      guaranteed-unique `<ns>.<pkg>.<cmd>` shim plus `<ns>.<cmd>` and bare
+      convenience pointers (which target the fully-qualified shim
+      directly). Convenience-tier collisions follow the same
+      last-install-wins/`use`/conflict-surfacing rules as bare shims do
+      today; the fully-qualified tier never collides, so every installed
+      command is always invocable — which is why there is no `run`
+      command.
 - [ ] Local install-state file (lockfile-style): installed packages, resolved
       versions and hashes, full resolved closure with direct-vs-transitive
       marking, and provenance.
@@ -202,8 +212,8 @@ Not scheduled; recorded so v1 decisions do not preclude them.
       Credential Locker), replacing the plaintext `credentials.toml` at rest
       where a keyring is available, with the file kept as the headless/CI
       fallback (hardening on D34's storage model).
-- [ ] Dot-qualified invocation of namespaced command overloads — invoking a
-      specific package's version of a command directly as
-      `<namespace>.<command>` (e.g. `kevin-c.my-script`) regardless of which
-      package currently owns the bare shim. The `.` is unambiguous precisely
-      because the namespace character set excludes it.
+- ~~Dot-qualified invocation of namespaced command overloads~~ — promoted
+      into v1.0.0 scope by D38 (three-tier shims), in a stronger form than
+      sketched here: a guaranteed-unique `<namespace>.<package>.<command>`
+      tier underlies the `<namespace>.<command>` convenience, closing the
+      same-namespace collision case this item's two-segment form left open.

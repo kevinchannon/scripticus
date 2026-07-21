@@ -135,19 +135,25 @@ are listed with the `scripticus use` command that would restore each one.
 
 ### Command conflicts
 
-If two installed packages expose the same command name, the most recently
-installed one owns the shim (you are warned at install time, as above). To
-re-point a command at a specific package:
+Every command is installed under three names: the bare command, a
+namespace-qualified form, and a fully-qualified form —
 
 ```console
-$ scripticus use tools/old-backup backup-rotate
+$ backup-verify --help                        # bare (convenient, can collide)
+$ infra.backup-verify --help                  # namespace-qualified
+$ infra.backup-rotate.backup-verify --help    # <namespace>.<package>.<command>
 ```
 
-The fully-disambiguated form is always available regardless of who owns the
-shim:
+The fully-qualified form is guaranteed unique, so every installed command
+is always runnable no matter what else you install. The two shorter forms
+are conveniences: if another package provides the same command name, the
+most recently installed package takes the contested name (you are warned
+at install time, as above). To re-point a contested name at a specific
+package, name the shim you want changed:
 
 ```console
-$ scripticus run infra/backup-rotate -- --dry-run
+$ scripticus use tools/old-backup backup-rotate        # the bare shim
+$ scripticus use infra/other-tool infra.backup-rotate  # a namespaced shim
 ```
 
 ## Authoring packages
