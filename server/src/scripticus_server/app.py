@@ -12,8 +12,15 @@ from scripticus_schema.index_api import (
     VersionSummary,
 )
 from scripticus_schema.semver import semver_key
+from scripticus_schema.whoami_api import WhoAmI
 from scripticus_server import __version__, db
 from scripticus_server.db import get_session
+from scripticus_server.gitea import (
+    GiteaAuthError,
+    GiteaClient,
+    GiteaError,
+    get_gitea_client,
+)
 from scripticus_server.publish import router as publish_router
 
 app = FastAPI(
@@ -48,6 +55,20 @@ class VersionInfo(BaseModel):
 @app.get("/version")
 def version() -> VersionInfo:
     return VersionInfo(version=__version__)
+
+
+# Pass-through token verification (D40): the caller's own Gitea token,
+# checked live against Gitea (D24) exactly as publish does (D32). The
+# service holds no credentials and stores nothing — the client uses this
+# to verify a token at `login` time rather than at first publish (D34).
+@app.get("/whoami")
+def whoami(gitea: GiteaClient = Depends(get_gitea_client)) -> WhoAmI:
+    try:
+        return WhoAmI(username=gitea.authenticated_user())
+    except GiteaAuthError as exc:
+        raise HTTPException(401, str(exc)) from exc
+    except GiteaError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @app.get("/packages/{namespace}/{name}")

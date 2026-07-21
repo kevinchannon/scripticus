@@ -274,6 +274,8 @@ Deliberately not designed yet: auth token scoping for CI publishing and
 the resolver algorithm's internals. The read- and write-path API schemas
 are designed (D30, D32; publish auth is pass-through of the caller's
 Gitea token, D32, obtained via `scripticus login` and stored per named
-remote, D34/D35). Token verification at login — a whoami pass-through
-endpoint on the index service — is planned follow-up work to D34, not
-yet designed in detail.
+remote, D34/D35). Token verification at login is served by the index
+service's `GET /whoami`, a pass-through of the caller's Gitea token to
+Gitea's `/user` returning the authenticated login (D40, the server half
+of D34); wiring the client's `login` to call it is the remaining
+follow-up.

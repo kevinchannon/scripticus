@@ -994,3 +994,33 @@ best available signal for which file is actually read.
 - Bad: single-file simplicity mishandles edge cases — macOS bash login
   shells read `.bash_profile`, and fish doesn't read `.profile` — those
   users add the printed line themselves.
+
+---
+
+## D40. `GET /whoami`: pass-through token verification for `login`
+
+**Decision**: The index service exposes `GET /whoami`, taking the
+caller's Gitea token in the `Authorization` header, passing it straight
+through to Gitea's own `/user` (the same live check publish already runs,
+D24/D32), and returning the token owner's login as
+`scripticus_schema.whoami_api.WhoAmI` (D29 — only the response shape is
+contract). A missing or rejected token is 401 with Gitea's verdict
+passed through; Gitea unreachable is 502. It reuses `gitea.py`'s
+`get_gitea_client` dependency and `authenticated_user()`, so nothing new
+speaks HTTP to Gitea and unit tests fake it exactly as publish does. This
+is the server half of D34's deferred verification; the client's use of it
+at `login` time is separate follow-up.
+
+**Reason**: D34 stores a token unverified, so a mistyped token surfaces
+only at first publish; the smallest fix is a read-only echo of the check
+publish already makes. Pass-through keeps D24 intact — the service holds
+no credentials, caches nothing ACL-shaped, and stores nothing from the
+response.
+
+**Consequences**:
+- Good: the client can verify a token the moment it is entered, closing
+  D34's noted gap without new auth machinery.
+- Good: reuses the existing Gitea boundary and its fake — one auth code
+  path, tested unit-side and behind the `e2e` marker like publish.
+- Bad: another live Gitea round-trip per login; negligible, and the
+  point of the endpoint.
