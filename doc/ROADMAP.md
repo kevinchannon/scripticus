@@ -134,7 +134,8 @@ docs in the client README):
 | `login <name> [<url>]`      | Store a Gitea token; register a remote first time      | Implemented |
 | `publish <path-prefix>`     | Publish packed archives to a remote, as one batch      | Implemented |
 | `install <ns/name>[@ver]`   | Install from a remote, with dependency resolution      | Implemented |
-| `search <query>`            | Search the configured remotes by name                  | Implemented |
+| `search <query>`            | Search remotes by content (name, description, commands) | Implemented |
+| `list [glob]`               | List installed + available packages, glob-filtered     | Implemented |
 | `update [<pkg>]`            | Update installed remote-provenance packages            | Planned     |
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
 | `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
@@ -216,12 +217,19 @@ installed command directly invocable by its namespaced names instead.
       org-distributable `config.toml`), with `SCRIPTICUS_TOKEN` as the CI
       override (D34). The token is verified against the remote's `/whoami`
       before being stored, reporting the authenticated identity (D40/D41).
-- [x] `search <query>` (D48): call every configured remote's `/search`
-      (name substring plus optional `--platform`/`--language` filters) in
-      priority order and merge the hits, each tagged with its remote —
-      fan-out, not first-match-wins like `install`. `--remote` restricts to
+- [x] `search <query>` (D48/D49): call every configured remote's `/search`
+      in priority order and merge the hits, each tagged with its remote —
+      fan-out, not first-match-wins like `install`. Matches package *content*
+      (name, description, command names, case-insensitively; tags deferred)
+      plus optional `--platform`/`--language` filters. `--remote` restricts to
       one. Best-effort: a down/erroring remote is a warning, only an
       all-remotes failure is fatal; the call is anonymous (no token).
+- [x] `list [glob]` (D49): dnf-style enumeration over *identity* — a shell
+      glob over `namespace/name`, showing an Installed section (local
+      lockfile) and an Available section (remotes' catalog minus what's
+      installed). `--installed` (offline) / `--available` restrict; `--remote`
+      picks the registry. Complements `search`'s content match; gives
+      Scripticus its first installed-listing.
 - [ ] `config install <git-url>` to roll out org-wide client configuration
       (remotes, defaults) in one command (Conan-style).
 - [x] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with

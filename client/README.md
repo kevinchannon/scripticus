@@ -30,7 +30,12 @@ package names resolve the way your organisation expects.
 
 ## Everyday usage
 
-### Searching
+### Finding packages
+
+There are two discovery verbs, for two different questions.
+
+**`search`** — "find me something that does X". It matches package *content*:
+name, description, and command names.
 
 ```console
 $ scripticus search backup --platform linux --lang bash
@@ -47,6 +52,27 @@ restricts the search to a single remote. If a remote is unreachable it's
 reported as a warning and the rest of the results still show. The optional
 `--platform` and `--language` (or `--lang`) filters narrow results to packages
 that publish a matching artifact.
+
+**`list`** — "show me what's there, by name". It enumerates package *identity*
+with a shell glob over `namespace/name`, dnf-style: an *Installed* section from
+your machine and an *Available* section from the remotes.
+
+```console
+$ scripticus list 'infra/*'
+Installed packages
+Package               Version
+infra/logrotate       0.4.1
+
+Available packages
+Package               Version
+infra/backup-rotate   1.2.0
+```
+
+A glob containing `/` scopes by namespace (`infra/*`); a bare glob matches the
+name in any namespace (`*-backup`). `--installed` restricts to what you have
+installed and needs no network; `--available` restricts to the remotes'
+catalog (excluding what's already installed). `--remote <name>` picks which
+remote supplies the available list.
 
 ### Installing
 

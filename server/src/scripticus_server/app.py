@@ -111,6 +111,23 @@ def _has_matching_artifact(
     return False
 
 
+def _matches_query(package: db.Package, candidates: list[db.PackageVersion], q: str) -> bool:
+    """Content match (D49): ``q`` (case-insensitive substring) against the
+    package name, any candidate version's description, or any command name it
+    provides. An empty ``q`` matches everything. Only the candidate versions
+    (non-yanked, artifact-filtered) contribute, so a match never rests on a
+    version the result wouldn't be presented at."""
+    needle = q.lower()
+    if needle in package.name.lower():
+        return True
+    for pv in candidates:
+        if needle in (pv.description or "").lower():
+            return True
+        if any(needle in command.name.lower() for command in pv.commands):
+            return True
+    return False
+
+
 @app.get("/search")
 def search(
     q: str = "",
@@ -119,10 +136,7 @@ def search(
     session: Session = Depends(get_session),
 ) -> SearchResults:
     packages = session.scalars(
-        select(db.Package)
-        .join(db.Namespace)
-        .where(db.Package.name.contains(q))
-        .order_by(db.Namespace.name, db.Package.name)
+        select(db.Package).join(db.Namespace).order_by(db.Namespace.name, db.Package.name)
     ).all()
     results = []
     for package in packages:
@@ -131,7 +145,7 @@ def search(
             for pv in package.versions
             if not pv.yanked and _has_matching_artifact(pv, platform, language)
         ]
-        if not candidates:
+        if not candidates or not _matches_query(package, candidates, q):
             continue
         latest = max(candidates, key=lambda pv: semver_key(pv.version))
         results.append(

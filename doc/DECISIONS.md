@@ -1378,3 +1378,45 @@ and applies the platform/language filters (D30), so the client just renders.
   a deliberate asymmetry to keep straight.
 - Bad: no cross-remote dedup in v1 — the same package on two mirrors shows
   twice; a package appearing once per remote is the honest v1 behaviour.
+
+---
+
+## D49. Two discovery verbs: `search` over content, `list` over identity
+
+**Decision**: Discovery splits along intent. `search <text>` matches package
+*content* — case-insensitively, over name, description, and command names
+(the fields the index already holds; tags/keywords are a deferred manifest
+addition, not in scope) — and is the "find me something that does X" verb.
+`list [glob]` enumerates *identity* — a shell glob over `namespace/name`,
+dnf-style, showing an **Installed** section (from the local lockfile) and an
+**Available** section (the remotes' catalog minus what's installed), with
+`--installed`/`--available` to restrict. A bare glob matches the name in any
+namespace; a glob with `/` scopes by namespace. `list`'s available half
+reuses the `/search` catalog (empty query) and globs client-side.
+
+**Reason**: The two questions are different and were being conflated. Content
+search wants relevance over description/commands; enumeration wants a
+deterministic name filter and a way to see "everything in `acme/*`" — a
+substring match can't anchor or namespace-scope. dnf's `list` (installed +
+available, `list --installed` to narrow) is the established shape and, as a
+bonus, gives Scripticus its first installed-listing — previously a latent gap.
+Keeping search's fields to what the index already stores ships the improvement
+without a contract change (D29). Client-side glob for the catalog is fine at
+v1 registry scale; a server glob endpoint waits for a registry big enough to
+need it.
+
+**Consequences**:
+- Good: `list --installed` answers "what have I installed?" offline, from the
+  lockfile alone — no server, no token.
+- Good: search stops being a weak substring and becomes real content
+  discovery, with no manifest or wire-schema change (existing columns only).
+- Good/asymmetry: `list` *deduplicates* an identity across remotes
+  (highest-priority wins) because enumerating a name twice is noise —
+  deliberately unlike `search` (D48), which shows mirrors because their
+  versions may differ.
+- Bad: two verbs where a naive design has one; users must learn which is
+  which (content vs identity).
+- Bad: `list`'s available half pulls the whole catalog to glob locally — a
+  known v1-scale shortcut that a server-side glob would later replace.
+- Bad: tags/keywords remain unsearchable until a separate manifest decision
+  adds them to `PackageMeta` and the index.

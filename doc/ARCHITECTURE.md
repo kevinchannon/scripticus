@@ -159,13 +159,20 @@ a batch of one, validated against already-committed index state.
 
 - **Search** is served entirely by the index service (Gitea's generic
   registry has no usable programmatic listing/search; the index database is
-  authoritative for discovery). The client's `search <query>` fans out to
-  *every* configured remote in priority order (`--remote` to restrict) and
-  merges the hits, each tagged with its remote — unlike `install`, which
-  stops at the first remote hosting the root (D46). Discovery is best-effort:
-  a down or erroring remote becomes a warning and the rest still show; only
-  an all-remotes failure is fatal. The call carries no token — `/search` is
-  an anonymous read (D48).
+  authoritative for discovery). Discovery splits into two verbs (D49):
+  `search <text>` matches package *content* — name, description, and command
+  names, case-insensitively (tags/keywords deferred) — while `list [glob]`
+  enumerates *identity* with a shell glob over `namespace/name`. Both fan out
+  to *every* configured remote in priority order (`--remote` to restrict) and
+  merge the hits, each tagged with its remote — unlike `install`, which stops
+  at the first remote hosting the root (D46). Discovery is best-effort: a down
+  or erroring remote becomes a warning and the rest still show; only an
+  all-remotes failure is fatal (D48). The calls carry no token — `/search` is
+  an anonymous read. `list` is dnf-style: an **Installed** section from the
+  local lockfile and an **Available** section from the remotes' catalog (minus
+  what's installed), with `--installed`/`--available` to restrict; its
+  available half reuses `/search`'s empty-query catalog and globs client-side,
+  deduplicating an identity across remotes (a v1-scale choice, D49).
 - **Resolution** is a server-side solver fed the client's state (D42).
   `install <namespace/name>[@spec]` resolves against the configured remotes
   in priority order, stopping at the first whose index has the root; the

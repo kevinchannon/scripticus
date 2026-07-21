@@ -42,6 +42,7 @@ from scripticus.publish import (
     publish_archives,
     resolve_remote,
 )
+from scripticus.listing import Entry, build_listing
 from scripticus.search import SearchError, search_remotes
 from scripticus.uninstall import (
     Candidate,
@@ -533,6 +534,78 @@ def search(
         table.add_row(*row)
 
     console.print(table)
+
+
+def _print_listing_section(title: str, entries: "list[Entry]", show_remote: bool) -> None:
+    console.print(f"[bold]{title}[/bold]")
+    multi = show_remote and len({e.remote for e in entries}) > 1
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Package")
+    table.add_column("Version")
+    if multi:
+        table.add_column("Remote")
+    for entry in entries:
+        row = [entry.identity, entry.version]
+        if multi:
+            row.append(entry.remote or "")
+        table.add_row(*row)
+    console.print(table)
+
+
+@app.command("list")
+def list_packages(
+    glob: Optional[str] = typer.Argument(
+        None,
+        help="Shell glob over 'namespace/name' (e.g. 'acme/*', '*-backup')."
+        " Omit to list everything.",
+    ),
+    installed: bool = typer.Option(
+        False,
+        "--installed",
+        help="Only packages installed locally (needs no network).",
+    ),
+    available: bool = typer.Option(
+        False,
+        "--available",
+        help="Only packages available on the remotes but not yet installed.",
+    ),
+    remote: Optional[str] = typer.Option(
+        None,
+        "--remote",
+        help="Consult only this remote for available packages.",
+    ),
+) -> None:
+    """List installed and available packages, dnf-style (glob-filterable)."""
+    if installed and available:
+        console.print("[red]error:[/red] --installed and --available are mutually exclusive")
+        raise typer.Exit(code=1)
+    scope = "installed" if installed else "available" if available else "all"
+    home = scripticus_home()
+
+    try:
+        remotes = load_remotes(home)
+        listing = build_listing(home, remotes, remote, glob, scope)
+    except (ConfigError, SearchError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    for warning in listing.warnings:
+        console.print(f"[yellow]warning:[/yellow] {escape(warning)}")
+
+    sections = []
+    if scope in ("all", "installed"):
+        sections.append(("Installed packages", listing.installed, False))
+    if scope in ("all", "available"):
+        sections.append(("Available packages", listing.available, True))
+    rendered = [(title, entries, show) for title, entries, show in sections if entries]
+
+    if not rendered:
+        console.print("No packages found.")
+        return
+    for index, (title, entries, show_remote) in enumerate(rendered):
+        if index:
+            console.print()
+        _print_listing_section(title, entries, show_remote)
 
 
 @app.command()

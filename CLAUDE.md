@@ -7,9 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The write path is implemented end-to-end (pack → login → publish →
 index + Gitea), and the remote read path is now complete on both halves:
 the server-side resolver (`POST /resolve`, D42/D43) and the client's
-resolve-then-fetch remote `install` (D42/D46), plus discovery — the
-client `search` fanning out to every configured remote's `GET /search`
-and merging the hits (D48). The v1 client surface is now feature-complete;
+resolve-then-fetch remote `install` (D42/D46), plus discovery — two verbs
+fanning out across every configured remote and merging the hits (D48/D49):
+`search <text>` matching package *content* (name, description, command
+names) and `list [glob]` enumerating *identity* dnf-style (Installed +
+Available sections). The v1 client surface is now feature-complete;
 post-v1 commands (`update`, `config install`, `yank`) remain. The repo is a **uv workspace**
 (Cargo-style) with three members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
@@ -41,11 +43,15 @@ against the remote's `/whoami` before storing, D41 — `whoami.py`), and
 name-version matching of pre-built archives, one batched multipart POST
 to the first-listed or `--remote`-named remote, token via
 `SCRIPTICUS_TOKEN` or the credential store, 401 mapped to an actionable
-re-login message), `search` (D48 — `search.py`: query every configured
+re-login message), `search` (D48/D49 — `search.py`: query every configured
 remote's `GET /search` in priority order and merge the hits, each tagged
-with its remote; `--remote` to restrict, `--platform`/`--language` filters,
-best-effort so a down remote is a warning not a failure, anonymous read),
-and `init` (post-install PATH bootstrap, D39 —
+with its remote; content match over name/description/command names,
+`--remote` to restrict, `--platform`/`--language` filters, best-effort so a
+down remote is a warning not a failure, anonymous read), `list` (D49 —
+`listing.py`: dnf-style identity enumeration with a shell glob over
+`namespace/name` — an Installed section from the lockfile and an Available
+section from the remotes' catalog minus what's installed, `--installed`
+(offline) / `--available` to restrict), and `init` (post-install PATH bootstrap, D39 —
 `init.py`). The contract code lives in `schema/` (`scripticus_schema`):
 the Pydantic manifest model and validation (`manifest.py`), the D3/D27
 content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
@@ -62,7 +68,8 @@ what a package is, or how client and server communicate) may go there. Client-si
 FastAPI app (`app.py`) exposing `GET /health`, `GET /version`,
 `GET /whoami` (pass-through Gitea token verification, D40), and the
 read endpoints — `GET /packages/{namespace}/{name}` (version listing),
-`GET /search`, and `POST /resolve` (the D42/D43 resolver — `resolve.py`:
+`GET /search` (case-insensitive content match over name/description/command
+names plus `platform`/`language` filters, D49), and `POST /resolve` (the D42/D43 resolver — `resolve.py`:
 a backtracking solver over an `Index` abstraction, fed the client's
 installed closure as identities and hard constraints, single-version-per-
 closure, aggregating tool requirements name-only for v1 and returning each

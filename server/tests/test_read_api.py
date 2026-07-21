@@ -19,7 +19,8 @@ def client(session_factory):
 
 def add_package(session_factory, namespace, name, versions):
     """Seed a package. Each version is (version, kwargs) where kwargs may
-    set yanked/description and an ``artifacts`` list of (platforms, language).
+    set yanked/description, an ``artifacts`` list of (platforms, language),
+    and a ``commands`` list of command names.
     """
     with session_factory() as session:
         existing = session.scalar(
@@ -30,6 +31,7 @@ def add_package(session_factory, namespace, name, versions):
         )
         for version, kwargs in versions:
             artifacts = kwargs.pop("artifacts", [])
+            commands = kwargs.pop("commands", [])
             package_version = db.PackageVersion(
                 package=package, version=version, **kwargs
             )
@@ -38,6 +40,10 @@ def add_package(session_factory, namespace, name, versions):
                     package_version=package_version,
                     platforms=",".join(platforms),
                     language=language,
+                )
+            for command in commands:
+                package_version.commands.append(
+                    db.Command(name=command, script_path="main.sh")
                 )
         session.add(package)
         session.commit()
@@ -91,6 +97,43 @@ def test_search_matches_name_substring(client, session_factory):
     add_package(session_factory, "kevin-c", "other", [("1.0.0", {})])
     results = client.get("/search", params={"q": "tool"}).json()["results"]
     assert [r["name"] for r in results] == ["my-tool"]
+
+
+def test_search_matches_description(client, session_factory):
+    add_package(
+        session_factory, "kevin-c", "rotate", [("1.0.0", {"description": "prune backups"})]
+    )
+    add_package(session_factory, "kevin-c", "other", [("1.0.0", {"description": "nope"})])
+    results = client.get("/search", params={"q": "backup"}).json()["results"]
+    assert [r["name"] for r in results] == ["rotate"]
+
+
+def test_search_matches_command_name(client, session_factory):
+    add_package(
+        session_factory, "kevin-c", "toolbox", [("1.0.0", {"commands": ["db-restore"]})]
+    )
+    add_package(session_factory, "kevin-c", "other", [("1.0.0", {"commands": ["ls"]})])
+    results = client.get("/search", params={"q": "restore"}).json()["results"]
+    assert [r["name"] for r in results] == ["toolbox"]
+
+
+def test_search_is_case_insensitive(client, session_factory):
+    add_package(
+        session_factory, "kevin-c", "widget", [("1.0.0", {"description": "A Backup Tool"})]
+    )
+    results = client.get("/search", params={"q": "BACKUP"}).json()["results"]
+    assert [r["name"] for r in results] == ["widget"]
+
+
+def test_search_ignores_yanked_versions_for_content_match(client, session_factory):
+    # The only version mentioning "backup" is yanked, so it must not surface.
+    add_package(
+        session_factory,
+        "kevin-c",
+        "gone",
+        [("1.0.0", {"description": "backup", "yanked": True})],
+    )
+    assert client.get("/search", params={"q": "backup"}).json()["results"] == []
 
 
 def test_search_with_empty_query_lists_everything(client, session_factory):
