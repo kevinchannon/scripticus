@@ -1269,7 +1269,17 @@ bytes.
 - Bad: split deployments that forgo the bundled proxy must reproduce the
   single-front routing themselves for relative pointers to resolve.
 
----
+**Note (proxy choice)**: the bundle uses Caddy. The routing is a
+two-way path split, which a Caddyfile expresses in ~10 declarative lines
+(a named matcher plus two `handle` blocks, path preserved by default) from
+a single static-binary image — the least config for the job, matching the
+"trivial to stand up" ethos (D2/D23). nginx and HAProxy were the
+alternatives: nginx needs more `http`/`server` scaffolding for the same two
+routes, and HAProxy's ACL/backend model is aimed at multi-backend load
+balancing this doesn't need. No requirement (many backends, advanced LB,
+L4) favours the heavier options; Caddy's automatic-HTTPS is an unused-here
+bonus if a public deployment later terminates TLS at the front. The proxy
+is swappable behind the "one front URL" contract, so this binds nothing.
 
 ## D46. Client remote install: one remote per closure, fully-namespaced only in v1
 
