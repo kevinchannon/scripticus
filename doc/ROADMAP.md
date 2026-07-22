@@ -105,9 +105,11 @@ control rather than cryptographic assurance.
       fetches blobs from Gitea itself with its stored token, staging and
       hash-verifying all blobs before committing (no companion download
       endpoint, per D9).
-- [ ] npm-style yank: yanked versions are excluded from `latest`/search
+- [x] npm-style yank: yanked versions are excluded from `latest`/search
       resolution but remain fetchable when directly pinned (including via
-      lockfiles). No hard delete.
+      lockfiles). No hard delete. The write path (D54) is a `PATCH` on the
+      version that flips a whole-version `yanked` flag, owner-authed like
+      publish; `yank --undo` reverses it with no time window.
 - [x] Data model: relational schema (namespace → package → package_version →
       artifact/dependency/tool_dep/command), storing each manifest verbatim
       alongside publish-time-extracted queryable columns (blob authoritative,
@@ -144,7 +146,7 @@ docs in the client README):
 | `update [<pkg>]`            | Update installed remote-provenance packages            | Implemented |
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
 | `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
-| `yank <ns/name>@<ver>`      | Hide a published version from search/latest            | Planned     |
+| `yank <ns/name>@<ver>`      | Hide a published version from search/latest (`--undo`) | Implemented |
 
 There is deliberately no `run` command: D38's three-tier shims make every
 installed command directly invocable by its namespaced names instead.

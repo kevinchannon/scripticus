@@ -76,6 +76,26 @@ present in the index, and a publish that would create a dependency cycle
 is rejected. The `library` namespace is reserved. The Gitea instance is
 configured with `SCRIPTICUS_GITEA_URL` (default `http://localhost:3000`).
 
+### Yanking
+
+`PATCH /packages/{namespace}/{name}/{version}` with a JSON body of
+`{"yanked": true}` hides a published version from search and `latest`/range
+resolution while leaving it fetchable by anything that pins it exactly — no
+hard delete. `{"yanked": false}` reverses it. Auth is the same live,
+namespace-scoped Gitea check as publishing, so only a namespace owner can
+yank. This is what `scripticus yank` (and `yank --undo`) does for you:
+
+```console
+$ curl -X PATCH http://localhost:8000/packages/infra/backup-rotate/1.2.0 \
+    -H "Authorization: token <your-gitea-token>" \
+    -H "Content-Type: application/json" \
+    -d '{"yanked": true}'
+```
+
+Unlike publish, this touches no Gitea blob — it flips one flag on the index
+record. An unknown version is a 404; yank is idempotent and carries no time
+window, so a version can be un-yanked at any time.
+
 ### Docker
 
 Server releases publish a Docker image to

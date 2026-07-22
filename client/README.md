@@ -410,7 +410,16 @@ $ scripticus yank infra/backup-rotate@1.2.0
 
 Yanked versions disappear from search and `latest` resolution, but remain
 fetchable by anything that pins them directly (including lockfiles), so
-existing consumers do not break.
+existing consumers do not break. `yank` takes an *exact* version (it is
+whole-version — a range is rejected), and needs a token for the namespace,
+exactly like `publish`.
+
+Changed your mind? `--undo` reverses a yank — the same version becomes visible
+again, with no time limit on when you can do it:
+
+```console
+$ scripticus yank --undo infra/backup-rotate@1.2.0
+```
 
 ### Platform variants
 

@@ -1623,3 +1623,42 @@ another installed package still needs.
   commands first, reconcile after new trees land) that install does not.
 - Bad: a genuinely unused tool lingers until the user acts on the advisory —
   by design, but it means update never fully cleans up after itself.
+
+---
+
+## D54. `yank` writes one mutable flag: owner-authed, whole-version, reversible
+
+**Decision**: `yank <ns/name>@<ver>` sets a version's whole-version `yanked`
+flag (D16/D23) via `PATCH /packages/{ns}/{name}/{version}` carrying
+`{"yanked": true}`; `yank --undo <ns/name>@<ver>` clears it with `false` — one
+endpoint, one reversible flag, not a publish-style action verb. The target must
+name an *exact* version (whole-version, D23); a range or partial version is
+rejected client-side. Auth is the caller's Gitea token, checked live and
+owner-scoped exactly as publish (D24/D32): the namespace must be the user or an
+org they belong to. Unlike publish the operation touches no Gitea blob and
+stages nothing — it is a single index-state mutation: authenticate, authorize,
+locate the exact version (404 if absent), flip the flag, commit. There is **no
+time window** on `--undo` and no hard delete (D16): the artifacts and the
+version row always remain; only search/`latest`/range visibility changes.
+
+**Reason**: The read semantics already existed (the resolver, search, and
+`list` all filter `yanked`); only the write was missing, so `yank` is purely
+the state-change that sets what everything else already reads. A `PATCH` on the
+version resource models a *mutable* flag honestly, where publish's `POST` models
+an immutable creation; the same verb serves un-yank because a reversible flag
+has no one-way door to guard. A time window on `--undo` would bound a
+*non-destructive* operation, which protects against nothing (nothing was
+deleted) while making a fumbled yank harder to recover — windows belong on
+irreversible removal, which Scripticus deliberately does not have. Reusing
+publish's `authenticated_user`/`can_publish` keeps yank in the same ACL as
+publish with no new auth surface.
+
+**Consequences**:
+- Good: broken versions leave discovery without breaking pinned consumers, and
+  a mistaken yank is always recoverable — `--undo` has no expiry.
+- Good: the write path adds no Gitea coupling, no staging, and no rollback —
+  it is the simplest write endpoint, sharing publish's auth wholesale.
+- Bad: whole-version only (D23) — a single broken variant still forces yanking
+  the entire version; per-variant yank stays deferred.
+- Bad: yank/un-yank can flip-flop a version's visibility indefinitely, with the
+  index recording only the current state, not the history of changes.

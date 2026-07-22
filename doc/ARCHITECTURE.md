@@ -246,7 +246,12 @@ a batch of one, validated against already-committed index state.
   owns, not rolled back on a later failure.
 - **Yank** (npm model) is index-service state: yanked versions are excluded
   from search and `latest`/range resolution but remain resolvable when pinned
-  exactly (including via lockfiles). Artifacts are never hard-deleted.
+  exactly (including via lockfiles). Artifacts are never hard-deleted. The
+  write path (D54) is `PATCH /packages/{ns}/{name}/{version}` carrying
+  `{"yanked": true|false}` — a single index-state mutation touching no Gitea
+  blob, owner-authed with the same live ACL as publish (D24). `yank --undo`
+  is the same endpoint with the flag cleared; being non-destructive it carries
+  no time window.
 
 ## Index service data model
 

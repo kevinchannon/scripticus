@@ -69,6 +69,12 @@ from scripticus.uninstall import (
     install_replacement,
 )
 from scripticus.use import UseError, prepare_use
+from scripticus.yank import (
+    YankError,
+    parse_target as parse_yank_target,
+    resolve_remote as resolve_yank_remote,
+    yank_version,
+)
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
@@ -973,6 +979,51 @@ def publish(
     console.print(f"Published [bold]{result.name}[/bold] {result.version}:")
     for artifact in result.artifacts:
         console.print(f"  {artifact.filename}")
+
+
+@app.command()
+def yank(
+    target: str = typer.Argument(
+        ...,
+        help="The version to yank, as 'namespace/name@version' (exact version).",
+    ),
+    undo: bool = typer.Option(
+        False,
+        "--undo",
+        help="Un-yank instead: make a previously yanked version visible again.",
+    ),
+    remote: Optional[str] = typer.Option(
+        None,
+        "--remote",
+        help="Named remote to yank on (default: the first in config.toml).",
+    ),
+) -> None:
+    """Hide a published version from search and 'latest' resolution (or --undo)."""
+    home = scripticus_home()
+
+    try:
+        namespace, name, version = parse_yank_target(target)
+        remotes = load_remotes(home)
+        chosen = resolve_yank_remote(remote, remotes)
+        token = resolve_token(chosen, home)
+        result = yank_version(
+            chosen, token, namespace, name, version, undo=undo
+        )
+    except (ConfigError, CredentialsError, YankError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    identity = f"{result.namespace}/{result.name}@{result.version}"
+    if result.yanked:
+        console.print(
+            f"Yanked [bold]{identity}[/bold] on '{chosen.name}'"
+            " — hidden from search and 'latest'; still installable when pinned."
+        )
+    else:
+        console.print(
+            f"Un-yanked [bold]{identity}[/bold] on '{chosen.name}'"
+            " — visible in search and 'latest' again."
+        )
 
 
 @app.command()

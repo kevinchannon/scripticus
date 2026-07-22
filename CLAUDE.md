@@ -20,7 +20,12 @@ else stays put; a target a shared constraint holds back is reported with the
 blocker named (the server's held-back diagnostic), a shrunk command set has its
 orphaned convenience shims reconciled through the D28 uninstall picker, and a
 system tool the closure no longer needs produces an advisory (never an
-uninstall, D44). `config install` and `yank` remain. The repo is a **uv workspace**
+uninstall, D44). The last write-path command has also landed: `yank
+<ns/name>@<ver>` (D54 — `yank.py`), which flips a version's whole-version
+`yanked` flag (read-side already enforced everywhere) via a `PATCH` on the
+version, owner-authed with publish's live Gitea ACL and touching no blob;
+`yank --undo` reverses it with no time window, since yank deletes nothing.
+`config install` remains. The repo is a **uv workspace**
 (Cargo-style) with four members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
 service fronting Gitea, providing the `scripticus-svr` command),
@@ -106,6 +111,10 @@ D23; tables created via `create_all` on first use, D31; DB URL from
 `SCRIPTICUS_GITEA_URL`, everything derived from the uploaded archives,
 the whole batch validated before any blob goes to Gitea and every blob
 confirmed before the index record commits; dependency rules per D33),
+and `PATCH /packages/{namespace}/{name}/{version}` (`yank.py`, D54 — flips a
+version's whole-version `yanked` flag from a `{"yanked": bool}` body, reusing
+publish's `authenticated_user`/`can_publish` ACL, no Gitea blob touched, 404
+on an unknown version; the client's `--undo` sends `false`),
 with the Gitea boundary isolated in `gitea.py` so tests fake it
 (e2e tests against real Gitea are marked `e2e`, deselected by default,
 run by `.github/workflows/e2e.yml`). The server has
@@ -116,8 +125,8 @@ the repo. System-tool installation shells out to an operator-configured
 command (`tools.py`, D44 — the `[tools] install`/`escalate` config, PATH
 presence check, `{packages}` substitution, platform-shell run; refuses when
 a required tool is missing and no installer is configured, with a
-`--skip-tools` escape). With `search` in, the v1 client commands are all
-implemented. A
+`--skip-tools` escape). With `search` and `yank` in, every v1 client command
+is implemented; only the post-v1 `config install` remains. A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
 registry bundle: a Caddy reverse-proxy front (`proxy/Caddyfile`, D45)
 presenting one user-facing URL over the index service and Gitea. The design
