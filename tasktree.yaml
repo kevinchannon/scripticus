@@ -1,0 +1,224 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kevinchannon/tasktree/main/schema/tasktree-schema.json
+#
+# Release automation for the scripticus uv workspace (see the "Releasing"
+# runbook in CLAUDE.md for the manual equivalent this encodes).
+#
+#   tt release schema=minor server=minor client=minor
+#   tt release common=patch dry_run=yes      # preview, touch nothing
+#   tt versions                              # show what's currently released
+#
+# Each package takes a bump kind: none | patch | minor | major. The task works
+# out the last released version from git tags, bumps it, rewrites the internal
+# dependency pin windows in the affected pyproject.toml files, commits + pushes
+# that, then pushes the release tags tier by tier in dependency order
+# (common -> schema -> server/client), waiting after each tier for the release
+# workflow to go green and the package(s) to appear on PyPI before the next.
+
+tasks:
+  versions:
+    desc: Show the latest released version of each workspace package (from git tags).
+    cmd: |
+      {% raw %}
+      set -euo pipefail
+      for c in common schema server client; do
+        last="$(git tag --list "${c}-v*" | sed "s/^${c}-v//" \
+          | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+        printf '%-8s %s\n' "$c" "${last:-<unreleased>}"
+      done
+      {% endraw %}
+
+  release:
+    desc: >-
+      Release one or more workspace packages to PyPI. Pass a bump per package
+      (none|patch|minor|major), e.g. 'tt release schema=minor client=patch'.
+    args:
+      - common: { choices: [none, patch, minor, major], default: none }
+      - schema: { choices: [none, patch, minor, major], default: none }
+      - server: { choices: [none, patch, minor, major], default: none }
+      - client: { choices: [none, patch, minor, major], default: none }
+      - dry_run: { type: str, choices: ["no", "yes"], default: "no" }
+    cmd: |
+      common="{{ arg.common }}"
+      schema="{{ arg.schema }}"
+      server="{{ arg.server }}"
+      client="{{ arg.client }}"
+      dry_run="{{ arg.dry_run }}"
+      {% raw %}
+      set -euo pipefail
+
+      # --- Fixed workspace structure -----------------------------------------
+      pypi_name() {
+        case "$1" in
+          common) echo scripticus-common ;;
+          schema) echo scripticus-schema ;;
+          server) echo scripticus-server ;;
+          client) echo scripticus ;;
+        esac
+      }
+      # Who pins each shared dependency in their pyproject.toml.
+      consumers_of() {
+        case "$1" in
+          common) echo "schema server client" ;;
+          schema) echo "server client" ;;
+          *)      echo "" ;;
+        esac
+      }
+      # Release tiers, in dependency order; tags within a tier push together.
+      tiers=("common" "schema" "server client")
+
+      declare -A bump=( [common]="$common" [schema]="$schema" \
+                        [server]="$server" [client]="$client" )
+      declare -A newver
+
+      # --- Which packages are being released? --------------------------------
+      releasing=""
+      for c in common schema server client; do
+        [ "${bump[$c]}" != "none" ] && releasing="$releasing $c"
+      done
+      releasing="$(echo $releasing | xargs || true)"
+      if [ -z "$releasing" ]; then
+        echo "Nothing to release. Pass a bump per package, e.g.:"
+        echo "  tt release schema=minor server=minor client=minor"
+        echo "  (choices per package: none | patch | minor | major)"
+        exit 1
+      fi
+      is_releasing() { case " $releasing " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+      # --- Preflight ---------------------------------------------------------
+      for tool in git gh uv curl; do
+        command -v "$tool" >/dev/null 2>&1 \
+          || { echo "error: '$tool' is required but not on PATH"; exit 1; }
+      done
+      gh auth status >/dev/null 2>&1 \
+        || { echo "error: 'gh' is not authenticated (run 'gh auth login')"; exit 1; }
+      branch="$(git rev-parse --abbrev-ref HEAD)"
+      [ "$branch" = "main" ] \
+        || { echo "error: releases are cut from 'main', but you are on '$branch'"; exit 1; }
+      [ -z "$(git status --porcelain)" ] \
+        || { echo "error: working tree is not clean — commit or stash first"; exit 1; }
+      git fetch --tags --quiet origin
+
+      last_version() {
+        git tag --list "${1}-v*" | sed "s/^${1}-v//" \
+          | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+      }
+      next_version() {   # $1 = package, $2 = bump kind
+        local last ma mi pa
+        last="$(last_version "$1")"
+        IFS=. read -r ma mi pa <<< "${last:-0.0.0}"
+        ma="${ma:-0}"; mi="${mi:-0}"; pa="${pa:-0}"
+        case "$2" in
+          patch) pa=$((pa + 1)) ;;
+          minor) mi=$((mi + 1)); pa=0 ;;
+          major) ma=$((ma + 1)); mi=0; pa=0 ;;
+        esac
+        echo "${ma}.${mi}.${pa}"
+      }
+
+      echo "=== Release plan${dry_run:+ (dry run)} ==="
+      for c in common schema server client; do
+        if is_releasing "$c"; then
+          newver[$c]="$(next_version "$c" "${bump[$c]}")"
+          printf '  %-7s %-6s %s -> %s\n' \
+            "$c" "${bump[$c]}" "$(last_version "$c" || true)" "${newver[$c]}"
+        fi
+      done
+      [ "$dry_run" = "yes" ] && DRY=1 || DRY=0
+
+      # --- Update dependency pin windows -------------------------------------
+      # Pin convention (D29/D51): >=X.Y,<X.(Y+1), recomputed from each released
+      # shared dep's new version. A patch bump reproduces the same window (a
+      # no-op). Only the quoted dependency string is matched, never the
+      # [tool.uv.sources] workspace line.
+      edited=""
+      set_pin() {   # $1 dep, $2 consumer, $3 low X.Y, $4 high X.Y  -> 0 if edited
+        local dist f tmp
+        dist="$(pypi_name "$1")"; f="${2}/pyproject.toml"; tmp="$(mktemp)"
+        sed -E "s#\"${dist}[^\"]*\"#\"${dist}>=${3},<${4}\"#" "$f" > "$tmp"
+        if cmp -s "$f" "$tmp"; then rm -f "$tmp"; return 1; fi
+        mv "$tmp" "$f"
+        case " $edited " in *" $f "*) : ;; *) edited="$edited $f" ;; esac
+        echo "  pin: ${2} now requires ${dist}>=${3},<${4}"
+        return 0
+      }
+      deferred=""
+      for c in common schema; do
+        is_releasing "$c" || continue
+        IFS=. read -r ma mi _ <<< "${newver[$c]}"
+        for consumer in $(consumers_of "$c"); do
+          if set_pin "$c" "$consumer" "${ma}.${mi}.0" "${ma}.$((mi + 1)).0"; then
+            is_releasing "$consumer" || deferred="$deferred ${consumer}"
+          fi
+        done
+      done
+      if [ -n "$deferred" ]; then
+        echo "note: pins bumped in packages NOT being released:$(echo $deferred | xargs -n1 | sort -u | xargs)"
+        echo "      their next release will carry the new window."
+      fi
+
+      # --- Commit + push the pin changes -------------------------------------
+      if [ -n "$edited" ]; then
+        if [ "$DRY" = "1" ]; then
+          echo "  [dry-run] would commit + push pin changes; reverting edits"
+          git checkout -- $edited
+        else
+          git add $edited
+          summary=""
+          for c in $releasing; do summary="${summary}${c}=${newver[$c]} "; done
+          git commit -q -m "Bump internal pins for release: ${summary%% }"
+          git push
+          echo "  committed + pushed pin bumps"
+        fi
+      else
+        echo "  no pin changes needed"
+      fi
+
+      # --- Push tags tier by tier, gating on green + PyPI --------------------
+      wait_for_release() {   # $1 package, $2 tag
+        local dist ver run_id i code url
+        dist="$(pypi_name "$1")"; ver="${newver[$1]}"
+        echo "  waiting for the release run of ${2}..."
+        run_id=""
+        for i in $(seq 1 30); do
+          run_id="$(gh run list --workflow=release.yml --event push --limit 40 \
+            --json databaseId,headBranch \
+            -q "map(select(.headBranch==\"${2}\")) | .[0].databaseId" 2>/dev/null || true)"
+          [ -n "$run_id" ] && [ "$run_id" != "null" ] && break
+          sleep 5
+        done
+        [ -n "$run_id" ] && [ "$run_id" != "null" ] \
+          || { echo "  error: no release run found for ${2}"; exit 1; }
+        echo "  watching run ${run_id}..."
+        gh run watch "$run_id" --exit-status >/dev/null
+        echo "  run green; confirming ${dist} ${ver} on PyPI..."
+        url="https://pypi.org/pypi/${dist}/${ver}/json"
+        for i in $(seq 1 30); do
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+          [ "$code" = "200" ] && { echo "  ${dist} ${ver} is live on PyPI"; return 0; }
+          sleep 10
+        done
+        echo "  error: timed out waiting for ${dist} ${ver} on PyPI"; exit 1
+      }
+
+      for tier in "${tiers[@]}"; do
+        tier_pkgs=""; tier_tags=""
+        for c in $tier; do
+          is_releasing "$c" || continue
+          tag="${c}-v${newver[$c]}"
+          tier_pkgs="$tier_pkgs $c"; tier_tags="$tier_tags $tag"
+          [ "$DRY" = "1" ] && { echo "  [dry-run] would tag + push ${tag}"; continue; }
+          git tag -a "$tag" -m "$(pypi_name "$c") ${newver[$c]}"
+        done
+        [ -z "$(echo $tier_tags | xargs || true)" ] && continue
+        [ "$DRY" = "1" ] && continue
+        echo "=== Releasing tier:${tier_tags} ==="
+        git push origin $tier_tags
+        for c in $tier_pkgs; do wait_for_release "$c" "${c}-v${newver[$c]}"; done
+      done
+
+      if [ "$DRY" = "1" ]; then
+        echo "=== Dry run complete — nothing was committed, tagged, or pushed ==="
+      else
+        echo "=== Done. Released:${releasing} ==="
+      fi
+      {% endraw %}
