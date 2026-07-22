@@ -141,7 +141,7 @@ docs in the client README):
 | `install <ns/name>[@ver]`   | Install from a remote, with dependency resolution      | Implemented |
 | `search <query>`            | Search remotes by content (name, description, commands) | Implemented |
 | `list [glob]`               | List installed + available packages, glob-filtered     | Implemented |
-| `update [<pkg>]`            | Update installed remote-provenance packages            | Planned     |
+| `update [<pkg>]`            | Update installed remote-provenance packages            | Implemented |
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
 | `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
 | `yank <ns/name>@<ver>`      | Hide a published version from search/latest            | Planned     |
@@ -167,7 +167,7 @@ installed command directly invocable by its namespaced names instead.
 - [x] `install -f|--file <archive>` for local installs (pip-style). Install
       state records provenance (remote vs local file); `update` skips/warns on
       local-provenance packages.
-- [ ] `update [<pkg>...]` (D52/D53): re-resolve installed remote-provenance
+- [x] `update [<pkg>...]` (D52/D53): re-resolve installed remote-provenance
       packages, reusing install's plan/confirm/stage/apply back half. Its
       targets are dropped from the solver's installed-version preference set
       (via the `roots: list` resolve request, D52) so they float while the

@@ -11,8 +11,16 @@ resolve-then-fetch remote `install` (D42/D46), plus discovery — two verbs
 fanning out across every configured remote and merging the hits (D48/D49):
 `search <text>` matching package *content* (name, description, command
 names) and `list [glob]` enumerating *identity* dnf-style (Installed +
-Available sections). The v1 client surface is now feature-complete;
-post-v1 commands (`update`, `config install`, `yank`) remain. The repo is a **uv workspace**
+Available sections). The v1 client surface is now feature-complete, and the
+first post-v1 command has landed: `update [<pkg>...]` (D52/D53 — `update.py`),
+which re-resolves installed remote packages against their remotes, reusing
+install's plan/stage/apply back half but sending its targets as roots with
+`upgrade=True` so they float to the newest compatible version while everything
+else stays put; a target a shared constraint holds back is reported with the
+blocker named (the server's held-back diagnostic), a shrunk command set has its
+orphaned convenience shims reconciled through the D28 uninstall picker, and a
+system tool the closure no longer needs produces an advisory (never an
+uninstall, D44). `config install` and `yank` remain. The repo is a **uv workspace**
 (Cargo-style) with four members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
 service fronting Gitea, providing the `scripticus-svr` command),
@@ -61,9 +69,10 @@ installed and available halves match identically, D50), and `init` (post-install
 (`scripticus_schema`) holds the **declarative shapes**: the Pydantic manifest
 model and validation (`manifest.py`, whose version field reuses `common`'s
 semver grammar), plus the wire models for the read API (`index_api.py`, D30),
-resolution (`resolve_api.py`, D42/D43 — the request carries the installed
-closure as identities, the response the resolved closure with each package's
-command map, D47), publish response (`publish_api.py`, D32), and token
+resolution (`resolve_api.py`, D42/D43/D52 — the request carries a list of
+roots, the installed closure as identities, and an `upgrade` flag; the response
+the resolved closure with each package's command map and any `held_back`
+diagnostic, D47/D52), publish response (`publish_api.py`, D32), and token
 verification (`whoami_api.py`, D40). `common/` (`scripticus_common`) holds the
 **pure deterministic computations** both sides must compute identically: the
 D3/D27 content hash (`treehash.py`), semver ordering (`semver.py`), the
@@ -83,11 +92,13 @@ read endpoints — `GET /packages/{namespace}/{name}` (version listing),
 `GET /search` (case-insensitive content match over name/description/command
 names plus `platform`/`language` filters, D49), `GET /packages` (identity
 listing: a `namespace/name` glob via the shared `fnmatch` primitive, D50),
-and `POST /resolve` (the D42/D43 resolver — `resolve.py`:
-a backtracking solver over an `Index` abstraction, fed the client's
-installed closure as identities and hard constraints, single-version-per-
-closure, aggregating tool requirements name-only for v1 and returning each
-package's command map, D47) — backed by the
+and `POST /resolve` (the D42/D43/D52 resolver — `resolve.py`:
+a backtracking solver over an `Index` abstraction, fed a list of roots and the
+client's installed closure as identities and hard constraints, single-version-
+per-closure, aggregating tool requirements name-only for v1 and returning each
+package's command map, D47; with `upgrade` set the roots float off their
+installed-version preference and a post-solve probe fills each held-back root's
+`held_back` diagnostic, D52) — backed by the
 SQLAlchemy index data model (`db.py`,
 D23; tables created via `create_all` on first use, D31; DB URL from
 `SCRIPTICUS_INDEX_DB`, default a local SQLite file), plus the write path:

@@ -148,6 +148,31 @@ def _resolve_on(remote: Remote, request: ResolveRequest) -> ResolveResult | None
     return ResolveResult.model_validate(response.json())
 
 
+def resolve_upgrade(
+    remote: Remote,
+    targets: list[str],
+    platform: str,
+    installed: list[InstalledPackage],
+) -> ResolveResult:
+    """Resolve an update group: ``targets`` (all from ``remote``) sent as roots
+    with ``upgrade=True`` so they float to newest, the full installed closure
+    sent as identities so non-targets stay put (D52). A closure is
+    single-remote (D33), so each provenance remote is resolved independently.
+    """
+    request = ResolveRequest(
+        roots=[Root(package=t, spec="") for t in targets],
+        platform=platform,
+        installed=installed,
+        upgrade=True,
+    )
+    result = _resolve_on(remote, request)
+    if result is None:
+        raise RemoteInstallError(
+            f"remote '{remote.name}' no longer has {', '.join(targets)}"
+        )
+    return result
+
+
 def resolve_root(
     remotes: list[Remote],
     forced: str | None,

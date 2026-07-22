@@ -9,12 +9,20 @@ from rich.markup import escape
 from rich.table import Table
 
 from scripticus import __version__, scaffold
-from scripticus.config import ConfigError, Tools, load_remotes, load_tools, save_remotes
+from scripticus.config import (
+    ConfigError,
+    Tools,
+    find_remote,
+    load_remotes,
+    load_tools,
+    save_remotes,
+)
 from scripticus.credentials import CredentialsError, resolve_token, set_token
 from scripticus.init import ensure_persistent_path, ensure_skeleton, on_path
 from scripticus.install import (
     InstallError,
     Transaction,
+    _find_entry,
     apply_install,
     current_os,
     prepare_install,
@@ -30,7 +38,15 @@ from scripticus.remote_install import (
     installed_closure,
     parse_target,
     resolve_root,
+    resolve_upgrade,
     stage_downloads,
+)
+from scripticus.update import (
+    UpdateError,
+    dropped_convenience_shims,
+    group_by_remote,
+    required_tool_names,
+    select_targets,
 )
 from scripticus.tools import ToolError, install_missing_required
 from scripticus.whoami import WhoAmIError, verify_token
@@ -472,6 +488,190 @@ def _install_remote(
         console.print("Overwritten shims:")
         for conflict in plan.conflicts:
             console.print(f"  {conflict.shim}  (was {conflict.owner})")
+
+
+def _print_held_back(plans: "list[tuple]") -> None:
+    """Say why a target could not reach its newest version (D52), so a
+    held-back update is never mistaken for an up-to-date one."""
+    for _, _, result in plans:
+        for package in result.packages:
+            if package.held_back is None:
+                continue
+            hb = package.held_back
+            console.print(
+                f"[yellow]{package.namespace}/{package.name}[/yellow] held at"
+                f" {package.version}: {hb.available} available but blocked by"
+                f" [bold]{hb.blocked_by}[/bold] ({escape(hb.detail)})"
+            )
+
+
+@app.command()
+def update(
+    packages: Optional[list[str]] = typer.Argument(
+        None,
+        help="Installed remote packages to update (bare 'name' or"
+        " 'namespace/name'). Omit to update every directly-installed"
+        " remote package.",
+    ),
+    skip_tools: bool = typer.Option(
+        False,
+        "--skip-tools",
+        help="Skip the system-tool check and installation entirely.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Auto-accept the transaction, but abort entirely on any shim conflict"
+        " (same as --force no-conflicts).",
+    ),
+    force: Optional[ForceMode] = typer.Option(
+        None,
+        "--force",
+        help="no-conflicts: auto-accept but abort on shim conflicts."
+        " all: auto-accept everything, reporting each overwritten shim.",
+    ),
+) -> None:
+    """Update installed remote packages to their newest compatible versions.
+
+    Targets float to the newest version compatible with everything else
+    installed; a package a shared constraint holds back is reported with the
+    blocker named (D52). Locally-installed (-f) packages cannot be updated and
+    are skipped (D20)."""
+    home = scripticus_home()
+    lock = read_lockfile(home)
+    mode = force.value if force else ("no-conflicts" if yes else None)
+
+    try:
+        targets = select_targets(lock, list(packages or []))
+    except UpdateError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    for package_id in targets.skipped_local:
+        console.print(
+            f"[yellow]skipping[/yellow] {package_id}: installed from a local file"
+            " (-f), not a remote — cannot update"
+        )
+    if not targets.entries:
+        console.print("No remote packages to update.")
+        return
+
+    remotes = load_remotes(home)
+    tools_config = load_tools(home)
+    platform = current_os()
+    closure = installed_closure(lock)
+
+    try:
+        plans: list[tuple] = []
+        for remote_name, package_ids in sorted(group_by_remote(targets.entries).items()):
+            remote = find_remote(remotes, remote_name)
+            if remote is None:
+                raise UpdateError(
+                    f"remote '{remote_name}' (source of {', '.join(sorted(package_ids))})"
+                    " is no longer configured — run 'scripticus login' to re-add it"
+                )
+            token = resolve_token(remote, home)
+            result = resolve_upgrade(remote, sorted(package_ids), platform, closure)
+            plans.append((remote, build_plan(remote, token, result, lock), result))
+    except (RemoteInstallError, ConfigError, CredentialsError, UpdateError) as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    any_actions = any(plan.actions for _, plan, _ in plans)
+    tool_work = (not skip_tools) and any(plan.missing_required for _, plan, _ in plans)
+    if not any_actions and not tool_work:
+        console.print("Everything is up to date.")
+        _print_held_back(plans)
+        return
+
+    # Pre-flight refusal (D44): a required tool missing with no installer means
+    # the update cannot complete — fail before the prompt, not after.
+    for _, plan, _ in plans:
+        if not skip_tools and plan.missing_required and tools_config.install is None:
+            listed = ", ".join(plan.missing_required)
+            console.print(
+                f"[red]error:[/red] missing required system tools: {listed}"
+                " — configure [tools] install in config.toml, install them"
+                " yourself, or re-run with --skip-tools"
+            )
+            raise typer.Exit(code=1)
+
+    for _, plan, _ in plans:
+        _print_remote_transaction(plan, skip_tools, tools_config)
+    _print_held_back(plans)
+
+    conflicts = [c for _, plan, _ in plans for c in plan.conflicts]
+    if mode is None:
+        console.print()
+        if not typer.confirm("Proceed?"):
+            console.print("Aborted — nothing updated.")
+            raise typer.Exit(code=1)
+    elif mode == "no-conflicts" and conflicts:
+        console.print(
+            "\n[red]error:[/red] aborting: the transaction would overwrite existing"
+            " command shims (nothing updated; use --force all to overwrite)"
+        )
+        raise typer.Exit(code=1)
+
+    # Snapshot, from the pre-apply lock, the convenience shims each upgrade will
+    # orphan (commands the new version drops), to reconcile after applying (D53).
+    orphaned = []
+    for _, plan, _ in plans:
+        for action in plan.actions:
+            resolved = action.resolved
+            old = _find_entry(lock, resolved.namespace, resolved.name)
+            if old is None:
+                continue  # a newly-pulled dependency drops nothing
+            dropped = dropped_convenience_shims(old, dict(resolved.commands))
+            if dropped:
+                orphaned.append(
+                    {"namespace": resolved.namespace, "name": resolved.name, "shims": dropped}
+                )
+
+    tools_before = required_tool_names(lock, home)
+
+    for remote, plan, _ in plans:
+        try:
+            staging_root, staged = stage_downloads(plan)
+        except RemoteInstallError as exc:
+            console.print(f"[red]error:[/red] {escape(str(exc))}")
+            raise typer.Exit(code=1) from exc
+        try:
+            if not skip_tools:
+                install_missing_required(plan.missing_required, tools_config)
+            apply_remote(plan, staged, home)
+        except ToolError as exc:
+            console.print(f"[red]error:[/red] {escape(str(exc))}")
+            raise typer.Exit(code=1) from exc
+        finally:
+            shutil.rmtree(staging_root, ignore_errors=True)
+
+    console.print("\nUpdated:")
+    for _, plan, _ in plans:
+        for action in plan.actions:
+            resolved = action.resolved
+            before = action.installed_version
+            arrow = f"{before} -> " if before else ""
+            console.print(f"  {resolved.namespace}/{resolved.name} {arrow}{resolved.version}")
+
+    # Reconcile convenience shims orphaned by a shrunk command set (D53): offer
+    # another installed provider, or (non-interactively) report the option.
+    new_lock = read_lockfile(home)
+    for removed in orphaned:
+        for shim, candidates in sorted(find_replacements(removed, new_lock, home).items()):
+            if mode is None:
+                _prompt_replacement(shim, candidates, new_lock, home)
+            else:
+                _report_replacements(shim, candidates)
+
+    # System tools are never uninstalled (D53/D44) — only flag any the closure
+    # no longer needs, for the user to remove via their package manager.
+    for tool in sorted(tools_before - required_tool_names(read_lockfile(home), home)):
+        console.print(
+            f"\nNo installed script requires '{tool}' any more — if nothing else"
+            " on your system uses it, you can remove it with your package manager."
+        )
 
 
 @app.command()
