@@ -181,7 +181,7 @@ repo secrets.
   deliberately unscheduled post-v1 items.
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
-- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record (D1–D46). Each
+- [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record. Each
   entry has decision, reasoning, and consequences (good *and* bad). Entries
   stay terse — match the register of D1–D11 (a tight Decision paragraph, a
   tight Reason, short consequence bullets). Architectural elaboration of a

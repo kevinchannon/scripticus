@@ -184,9 +184,9 @@ a batch of one, validated against already-committed index state.
   closure single-remote (cross-remote deps are unsupported in v1 — mirror
   instead; federation is post-v1, D46). v1 requires the fully-namespaced
   form; bare-name search (D5) is deferred.
-  `POST /resolve` takes the root package (name, optional version/range),
-  the client's platform, and the client's installed closure as
-  **identities only** — each installed package as
+  `POST /resolve` takes a list of **roots** (each a name plus optional
+  version/range, D52), the client's platform, and the client's installed
+  closure as **identities only** — each installed package as
   `namespace/name@version`, no constraints; the server re-derives each
   installed version's constraints from its own index (D21), which it can
   because D33 keeps every dependency edge within one index. So the request
@@ -197,7 +197,13 @@ a batch of one, validated against already-committed index state.
   version satisfying the intersection of every constraint reaching it,
   with the installed packages entered as **hard constraints** — so a
   resolve neither breaks an already-installed package nor needlessly bumps
-  one that still satisfies. It returns a flat closure of (package, exact
+  one that still satisfies. This root-list-over-pinned-remainder shape is
+  what makes `install` and `update` the same call (D52): `install` sends one
+  root over a fully-pinned closure, while `update` promotes its targets to
+  open-spec roots and leaves the rest of the closure pinned — so update is
+  conservative (newest target compatible with the frozen remainder), and a
+  target held below its latest by a shared constraint is reported with the
+  blocking package named rather than silently. It returns a flat closure of (package, exact
   version, content hash, Gitea pointer, direct/transitive, command map)
   plus the aggregated tool requirements. Each package's command→script-path
   map (the index's manifest projection, D21) rides along so the client can
@@ -313,7 +319,12 @@ Everything lives under `~/.scripticus/`:
   version and content hash, the full resolved closure with
   direct-vs-transitive marking, and provenance (remote vs local `-f`
   install). `update` and `uninstall` operate against this without a server
-  round-trip; `update` skips local-provenance entries with a warning.
+  round-trip; `update` skips local-provenance entries with a warning. When an
+  update shrinks a package's command set, the dropped convenience shims are
+  reconciled through the same D28 uninstall picker (offer another installed
+  provider, or remove-with-warning under `-y`); system tools are never
+  removed — the closure's now-unneeded tools only produce an advisory to
+  remove them via the system package manager (D53).
 - **`bin/`** — the shim directory, added to PATH once at client install
   time by `scripticus init` (D39). POSIX shims are symlinks or one-line
   wrappers; Windows shims are

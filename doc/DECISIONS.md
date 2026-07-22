@@ -1506,3 +1506,94 @@ familiar name is safe once the charter carries the rule the name doesn't.
   feared. The charter, not the name, is what prevents that.
 - Bad: one-time churn — four modules and their imports moved, and `schema`
   gained a dependency it didn't have.
+
+---
+
+## D52. `update` is conservative: floats its targets, freezes the rest, never breaks or downgrades
+
+**Decision**: `update [<pkg>...]` reuses the whole remote-install back half
+(plan → confirm → stage/verify → apply, D42/D46); it differs only in how the
+`/resolve` request is built. To express "these installed packages may move up,
+everything else stays put," `ResolveRequest.root: str` generalises to
+`roots: list` of `{package, spec}`: `install X` is one root over a
+fully-pinned installed closure; `update X Y` sends X and Y as open-spec roots
+with the *rest* of the closure still sent as hard pins; bare `update` makes
+every direct remote-provenance package a root. Because non-target packages
+stay pinned, update is conservative by construction — it picks the newest
+target version compatible with the frozen remainder, and when a shared
+constraint holds a target below its latest it says so and names the blocking
+package rather than reporting "up to date." It never downgrades (best-available
+< installed is "no update," not a downgrade), and a genuinely unsatisfiable
+request is the same hard error as install (D17: nothing changes, no partial
+state), with the escape being to widen the target set so the blockers can move
+too. Local-provenance (`-f`) entries are skipped with a warning (D20).
+
+**Reason**: The resolver already treats the installed closure as hard
+constraints so install "neither breaks nor needlessly bumps" it (D42);
+update is the same solver with the target's pin *released*, so the safety
+properties come for free. Single-version-per-closure (D15) forbids doing
+update-all as a loop of single-target updates — a shared dep bumped by one
+target then constrains the next, making the result order-dependent — so
+update-all needs a genuine multi-root resolve, which is why the contract
+grows a `roots` list rather than update faking it client-side. Naming the
+blocker turns the most common "why won't it update?" confusion into a
+self-explaining message. Auto-cascading through blockers (a `--latest` that
+bumps un-asked-for packages) is deliberately deferred: conservative-plus-
+name-the-blocker keeps v1 update from surprising anyone.
+
+**Consequences**:
+- Good: update is mostly install — one request-construction difference, one
+  policy layer (no-downgrade, name-the-blocker), zero new fetch/apply code.
+- Good: update can never break an installed closure; the worst case is a
+  held-back package with an explanation, or a clean hard error.
+- Good: `roots: list` unifies install and update at the API and leaves room
+  for multi-package install later.
+- Bad: a user wanting a target at its absolute latest may have to name the
+  blocking packages too — intended friction, but friction.
+- Bad: the server solver must accept multiple free roots against a pinned
+  remainder, a modest generalisation of the single-root path.
+
+---
+
+## D53. `update` reconciles what Scripticus owns; it only advises on system tools
+
+**Decision**: When an update changes a package's command set, the *delta* is
+handled, not just install-over. Surviving commands (`old ∩ new`) are rewritten
+in place. Dropped commands (`old − new`) are an uninstall of exactly those
+commands: the unique `<ns>.<pkg>.<cmd>` shim is removed outright, and each
+dropped *convenience* shim the package owns runs the D28 reconciliation
+(`find_replacements` → picker → `install_replacement`) — offering another
+installed provider of that command (same-namespace only for a namespaced
+shim), or, under `-y`/`--force`, removing it with a warning rather than
+prompting. The delta is computed before the tree is overwritten and reconciled
+after the new trees land, so a command newly provided by *another* updated
+package counts as a candidate. **System tools are never uninstalled**: they are
+the package manager's to own and Scripticus holds no privilege over them (D44).
+Instead, after the transaction Scripticus diffs the tool set the new installed
+closure requires (re-derived from installed manifests' `dependencies.tools`,
+D21) against the old, and for each tool no longer required by *any* installed
+package prints an advisory to consider removing it via the system package
+manager — informational only, never acting.
+
+**Reason**: Both halves are one rule over two ownership domains: Scripticus
+reconciles what it owns (shims, package trees) and only advises on what it does
+not (system tools). The shim half must exist because install-over alone would
+leave orphaned convenience shims pointing at deleted targets; reusing the
+uninstall primitives means update introduces no new shim logic. The tool half
+is forced by D44's "Scripticus never needs privilege" invariant — auto-removing
+a tool would require exactly the escalation that invariant refuses, and the
+tool may still be wanted by something outside Scripticus. Diffing against *all*
+installed packages, not just the transaction, avoids advising removal of a tool
+another installed package still needs.
+
+**Consequences**:
+- Good: update leaves no dangling shims and no silently-clobbered convenience
+  pointers; the D28 flow the user already knows from uninstall applies.
+- Good: the privilege invariant (D44) survives update unchanged — Scripticus
+  still only ever writes user-space state.
+- Good: users get told when a tool has become dead weight, without Scripticus
+  touching system state.
+- Bad: update's commit path has an ordering constraint (compute dropped
+  commands first, reconcile after new trees land) that install does not.
+- Bad: a genuinely unused tool lingers until the user acts on the advisory —
+  by design, but it means update never fully cleans up after itself.
