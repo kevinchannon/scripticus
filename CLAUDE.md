@@ -150,6 +150,19 @@ $ uv build --package scripticus-server
 
 ## Releasing
 
+**Prefer the automated path.** The whole runbook below is encoded in the Task
+Tree recipe [tasktree.yaml](tasktree.yaml) — when asked to cut a release, use
+`tt release` rather than performing the steps by hand. Pass a bump per package
+(`none|patch|minor|major`), e.g. `tt release schema=minor server=minor
+client=patch`; it derives each next version from the git tags, rewrites the
+internal pin windows, commits and pushes them, then pushes the release tags
+tier by tier (common → schema → server/client), waiting after each tier for the
+workflow to go green and the package(s) to appear on PyPI before the next. Add
+`dry_run=yes` to preview the plan without touching anything (always do this
+first if unsure), and `tt versions` lists the current released versions. The
+manual runbook below is what `tt release` automates — the source of truth for
+its behaviour and the fallback if `tt` is unavailable.
+
 Releases are tag-driven, one tag per package: pushing `client-vX.Y.Z`
 releases `scripticus` to PyPI, `schema-vX.Y.Z` releases `scripticus-schema`,
 `common-vX.Y.Z` releases `scripticus-common`
