@@ -283,6 +283,32 @@ non-conforming versions are rejected.
 > exactly as with a broken `pyproject.toml` or `package.json`. Test your
 > packages.
 
+### Multi-file packages
+
+A package is a directory, so an entrypoint can call sibling helper scripts or
+read sibling data files. The whole tree is packed and installed together, and
+a command's shim runs its entrypoint **by absolute path** from wherever you
+happen to be standing — it does *not* `cd` into the package, and the package
+directory is *not* added to `PATH`. So there is one rule for reaching a
+sibling:
+
+> **Resolve siblings relative to your own script file, never relative to the
+> current directory.** A command runs with the *user's* working directory, not
+> the package's, so `./helper.sh` or a bare `open("data.txt")` looks in the
+> wrong place. Anchor on the script's own location instead:
+
+| Language | Do this | Not this |
+| --- | --- | --- |
+| bash | `dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; "$dir/helper.sh"` | `./helper.sh` |
+| python | `Path(__file__).resolve().parent / "helper.py"` | `open("helper.py")` |
+| powershell | `Join-Path $PSScriptRoot 'helper.ps1'` | `.\helper.ps1` |
+
+This is ordinary script hygiene — the same code would break under any bin-dir
+installer — and it is the reason a plain `./helper.sh` cannot be made to work
+no matter how the shim is written. Only helper scripts you want to expose as
+their *own* commands need a `[commands]` entry; internal helpers and data files
+just ride along in the tree.
+
 ### Packing
 
 To archive a package directory into a distributable artifact:
