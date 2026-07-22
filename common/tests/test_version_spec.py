@@ -1,6 +1,6 @@
 import pytest
 
-from scripticus_schema.version_spec import (
+from scripticus_common.version_spec import (
     VersionSpec,
     VersionSpecError,
     parse,

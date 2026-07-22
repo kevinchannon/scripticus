@@ -34,8 +34,11 @@ The design documents live in [doc/](doc/): [vision](doc/VISION.md),
 ## Developing
 
 The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
-with three members, `client/`, `schema/`, and `server/`. All commands run
-from the repository root:
+with four members: `client/` and `server/` (the CLI and index service), and
+two shared packages they both build on — `schema/` (the declarative wire and
+manifest models) and `common/` (pure helpers both sides compute identically:
+hashing, versioning, identity globbing). All commands run from the repository
+root:
 
 ```console
 $ uv sync                             # create/update the workspace environment

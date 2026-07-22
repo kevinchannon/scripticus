@@ -668,6 +668,11 @@ coupling; `schema` states the admission rule in the directory listing.
   release to be on the index first.
 - Bad: a schema change fans out to up to three coordinated version bumps.
 
+*Refined by [D51]: the pure computations named here (tree hash, semver,
+version-spec) are split out into a fourth package, `scripticus-common`,
+leaving `schema` the declarative shapes. D51 also revisits this entry's
+argument against a `common/` name.*
+
 ---
 
 ## D30. The read API's wire models are the first pinned-down API schemas
@@ -1430,10 +1435,11 @@ apply the identity glob, instead of pulling the whole catalog and globbing on
 the client (superseding that part of D49). `/packages` is the identity
 counterpart to `/search`'s content match — same `SearchResults` wire model,
 filtered by a `namespace/name` glob, absent glob meaning all, fully-yanked
-packages invisible. The glob-match rule lives in `scripticus_schema`
-(`identity_glob.matches`) and is used by *both* the server (available) and the
-client (installed, against the lockfile), so the two sections always agree.
-Matching is `fnmatch`, never SQL `LIKE`.
+packages invisible. The glob-match rule lives in a shared primitive
+(`identity_glob.matches` — relocated to `scripticus-common` by D51) and is used
+by *both* the server (available) and the client (installed, against the
+lockfile), so the two sections always agree. Matching is `fnmatch`, never SQL
+`LIKE`.
 
 **Reason**: The client shouldn't download an entire catalog to show a handful
 of rows; the server already holds the index. But the installed section is
@@ -1458,3 +1464,45 @@ injection surface and matches the read path's existing load-then-filter style.
 - Bad: `list --available` now needs a server new enough to expose
   `/packages`; an older one 404s (acceptable pre-v1, everything ships
   together), with no client fallback.
+
+---
+
+## D51. Shared code splits by function: `schema` (shapes) and `common` (computations)
+
+**Decision**: The shared workspace member splits in two, classified by *what
+the code is*, not merely that it is shared. `scripticus-schema` keeps the
+declarative data shapes — the Pydantic wire models and the manifest model
+(what crosses the wire / what a package is). A new fourth member,
+`scripticus-common`, holds the pure deterministic computations both sides must
+perform identically: the tree hash (D3/D27), semver ordering (D16),
+version-spec parsing, and identity globbing (D50). Each package carries its own
+one-line **charter**: `schema` admits a declarative shape; `common` admits a
+pure function (no I/O, no framework) that must give byte-identical results on
+both ends. `manifest` reuses `common`'s version grammar, so `schema` depends on
+`common` — a clean one-way edge.
+
+**Reason**: D29 lumped these together as "the contract," but `treehash`,
+`semver`, `version_spec`, and `identity_glob` were never schemas — they're
+algorithms, and the `schema` name mis-advertised them (they sit outside the
+package's own import graph, imported by neither the wire models nor each
+other). Splitting by function gives two buckets with sharp, guessable
+admission rules, so a person or tool can predict where a new helper belongs
+instead of guessing. D29 argued *against* a `common/` name precisely because
+it "advertises for convenience code"; the counter is that the risk lives in
+the *admission rule*, not the word — a written charter ("pure, deterministic,
+both-ends-must-agree") is decidable in a way "is it shared?" is not, so the
+familiar name is safe once the charter carries the rule the name doesn't.
+
+**Consequences**:
+- Good: placement is guessable by function — `schema` is now purely
+  declarative, `common` purely computational; neither is a grab-bag.
+- Good: the bit-identical guarantee D29 wanted for the tree hash (and now the
+  glob) is unchanged — just housed under a name that says what it is.
+- Bad: a *fourth* PyPI package, and the release ordering deepens —
+  `common` must publish before `schema`, which must publish before
+  `client`/`server` (the workflow waits on every internal pin).
+- Bad: `common` only earns its keep if the charter is enforced; an
+  undisciplined maintainer can still turn it into the dumping ground D29
+  feared. The charter, not the name, is what prevents that.
+- Bad: one-time churn — four modules and their imports moved, and `schema`
+  gained a dependency it didn't have.

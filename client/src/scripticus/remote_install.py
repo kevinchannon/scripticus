@@ -38,6 +38,9 @@ from scripticus.install import (
     read_lockfile,
     write_lockfile,
 )
+from scripticus_common.semver import semver_key
+from scripticus_common.treehash import tree_hash
+from scripticus_common.version_spec import VersionSpecError, parse as parse_spec
 from scripticus_schema.manifest import Manifest, load_manifest
 from scripticus_schema.resolve_api import (
     InstalledPackage,
@@ -45,9 +48,6 @@ from scripticus_schema.resolve_api import (
     ResolveRequest,
     ResolveResult,
 )
-from scripticus_schema.semver import semver_key
-from scripticus_schema.treehash import tree_hash
-from scripticus_schema.version_spec import VersionSpecError, parse as parse_spec
 
 
 class RemoteInstallError(Exception):

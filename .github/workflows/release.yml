@@ -8,6 +8,7 @@ on:
       # package separately with no coordination needed here. The tag prefix
       # matches the workspace directory of the package it releases.
       - 'client-v*.*.*'
+      - 'common-v*.*.*'
       - 'schema-v*.*.*'
       - 'server-v*.*.*'
 
@@ -41,6 +42,7 @@ jobs:
           VERSION=${GITHUB_REF_NAME#*-v}
           case "$COMPONENT" in
             client) PACKAGE=scripticus ;;
+            common) PACKAGE=scripticus-common ;;
             schema) PACKAGE=scripticus-schema ;;
             server) PACKAGE=scripticus-server ;;
             *) echo "::error::unrecognised release tag '$GITHUB_REF_NAME'"; exit 1 ;;
@@ -66,32 +68,40 @@ jobs:
           unzip -l dist/*.whl
           ls -lh dist/
 
-      - name: Wait for the schema dependency to be installable
-        # Any component that pins scripticus-schema (client and server, not
-        # schema itself) must not be published before a satisfying schema
-        # release exists on PyPI (D29).
-        if: steps.parse.outputs.COMPONENT != 'schema'
+      - name: Wait for internal dependencies to be installable
+        # Any component that pins an internal scripticus-* package must not be
+        # published before a satisfying release of each exists on PyPI: schema
+        # now pins common, and client/server pin both (D29/D51). common pins
+        # nothing, so this is a no-op for it. The pins carry a version operator
+        # (>=, <, ...); the [project] name line does not, so it is never
+        # matched — a package never waits for itself.
         run: |
-          REQ=$(grep -o '"scripticus-schema[^"]*"' \
-            '${{ steps.parse.outputs.COMPONENT }}/pyproject.toml' | tr -d '"')
-          if [ -z "$REQ" ]; then
-            echo "${{ steps.parse.outputs.COMPONENT }} has no scripticus-schema pin; nothing to wait for"
+          REQS=$(grep -oE '"scripticus-[a-z-]+[<>=~!][^"]*"' \
+            '${{ steps.parse.outputs.COMPONENT }}/pyproject.toml' | tr -d '"' || true)
+          if [ -z "$REQS" ]; then
+            echo "${{ steps.parse.outputs.COMPONENT }} has no internal pins; nothing to wait for"
             exit 0
           fi
-          echo "${{ steps.parse.outputs.COMPONENT }} requires: $REQ"
-          # If the matching schema tag was pushed moments ago, its release
-          # run may still be in flight; wait for the dependency rather than
-          # publishing a client release that cannot be installed (D29).
           uv venv .probe
-          for attempt in $(seq 1 30); do
-            if uv pip install --python .probe/bin/python --no-cache --dry-run "$REQ"; then
-              exit 0
+          # A matching dependency tag pushed moments ago may still be releasing;
+          # wait for each pin rather than publishing something uninstallable.
+          while IFS= read -r REQ; do
+            [ -z "$REQ" ] && continue
+            echo "${{ steps.parse.outputs.COMPONENT }} requires: $REQ"
+            satisfied=0
+            for attempt in $(seq 1 30); do
+              if uv pip install --python .probe/bin/python --no-cache --dry-run "$REQ"; then
+                satisfied=1
+                break
+              fi
+              echo "'$REQ' not installable yet (attempt $attempt/30), retrying in 10s..."
+              sleep 10
+            done
+            if [ "$satisfied" -ne 1 ]; then
+              echo "::error::no PyPI release satisfies '$REQ' — release its package first (D29/D51)"
+              exit 1
             fi
-            echo "'$REQ' not installable yet (attempt $attempt/30), retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::no scripticus-schema release on PyPI satisfies '$REQ' — release the schema package first (D29)"
-          exit 1
+          done <<< "$REQS"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

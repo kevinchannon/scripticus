@@ -11,7 +11,7 @@ enumerates *identity* deterministically.
 The available half asks each remote's ``GET /packages`` to apply the glob
 server-side (D50), so the client no longer downloads the whole catalog. The
 installed half is globbed on the client, against the lockfile — both sides use
-the same ``scripticus_schema.identity_glob`` primitive so their matches agree
+the same ``scripticus_common.identity_glob`` primitive so their matches agree
 exactly. Unlike ``search``, ``list`` deduplicates an identity across remotes
 (highest-priority remote wins), since enumerating the same package twice is
 noise. A missing or unreachable registry degrades the ``list`` (both-section)
@@ -26,7 +26,7 @@ from pathlib import Path
 from scripticus.config import Remote, find_remote
 from scripticus.install import read_lockfile
 from scripticus.search import SearchError, catalog_remotes
-from scripticus_schema.identity_glob import matches as identity_matches
+from scripticus_common.identity_glob import matches as identity_matches
 
 
 @dataclass

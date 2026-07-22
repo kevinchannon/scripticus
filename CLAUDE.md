@@ -13,11 +13,14 @@ fanning out across every configured remote and merging the hits (D48/D49):
 names) and `list [glob]` enumerating *identity* dnf-style (Installed +
 Available sections). The v1 client surface is now feature-complete;
 post-v1 commands (`update`, `config install`, `yank`) remain. The repo is a **uv workspace**
-(Cargo-style) with three members: `client/` (PyPI package `scripticus`,
+(Cargo-style) with four members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
-service fronting Gitea, providing the `scripticus-svr` command), and
+service fronting Gitea, providing the `scripticus-svr` command),
 `schema/` (PyPI package `scripticus-schema`, the shared client/server
-contract, D29). The client is a Typer + Rich CLI. It implements `-v`/`--version`, `new`
+contract — the declarative wire and manifest shapes, D29), and `common/`
+(PyPI package `scripticus-common`, the pure deterministic helpers both
+sides must compute identically — hashing, versioning, identity globbing,
+D51). The client is a Typer + Rich CLI. It implements `-v`/`--version`, `new`
 (scaffolding, `scaffold.py`), `pack` (archive creation, `pack.py`),
 `install <ns/name>[@spec]` (remote install: resolve against the configured
 remotes in priority order — first hosting the root, `--remote` to force —
@@ -52,22 +55,27 @@ down remote is a warning not a failure, anonymous read), `list` (D49 —
 `namespace/name` — an Installed section from the lockfile and an Available
 section from the remotes' `GET /packages` catalog minus what's installed,
 `--installed` (offline) / `--available` to restrict; the glob runs
-server-side via the shared `scripticus_schema.identity_glob` primitive so the
+server-side via the shared `scripticus_common.identity_glob` primitive so the
 installed and available halves match identically, D50), and `init` (post-install PATH bootstrap, D39 —
-`init.py`). The contract code lives in `schema/` (`scripticus_schema`):
-the Pydantic manifest model and validation (`manifest.py`), the D3/D27
-content hash (`treehash.py`), semver ordering (`semver.py`), and the wire
-models for the read API (`index_api.py`, D30), resolution
-(`resolve_api.py`, D42/D43 — the request carries the installed closure as
-identities, the response the resolved closure with each package's command
-map, D47), publish response (`publish_api.py`, D32), and token verification
-(`whoami_api.py`, D40), and the version-spec grammar plus the reusable
-version-window primitive (`version_spec.py`; grammar documented in
-ARCHITECTURE.md, primitive serving D42/D43), the manifest's tool-name
-charset validation (D44), and the shared `namespace/name` glob primitive
-(`identity_glob.py`, D50 — one `fnmatch` rule both sides of `list` use so
-installed and available filtering agree). Only code meeting D29's admission rule (defines
-what a package is, or how client and server communicate) may go there. Client-side state goes under `~/.scripticus/`
+`init.py`). The shared code is split by function (D51). `schema/`
+(`scripticus_schema`) holds the **declarative shapes**: the Pydantic manifest
+model and validation (`manifest.py`, whose version field reuses `common`'s
+semver grammar), plus the wire models for the read API (`index_api.py`, D30),
+resolution (`resolve_api.py`, D42/D43 — the request carries the installed
+closure as identities, the response the resolved closure with each package's
+command map, D47), publish response (`publish_api.py`, D32), and token
+verification (`whoami_api.py`, D40). `common/` (`scripticus_common`) holds the
+**pure deterministic computations** both sides must compute identically: the
+D3/D27 content hash (`treehash.py`), semver ordering (`semver.py`), the
+version-spec grammar plus the reusable version-window primitive
+(`version_spec.py`; grammar documented in ARCHITECTURE.md, primitive serving
+D42/D43), and the `namespace/name` glob primitive (`identity_glob.py`, D50 —
+one `fnmatch` rule both sides of `list` use). The manifest's tool-name charset
+validation lives with the manifest in `schema/` (D44). Each package's charter
+is its admission rule: `schema` admits a declarative shape (defines what a
+package is or how client and server communicate, D29); `common` admits a pure,
+deterministic function that must give identical results on both ends (D51).
+Client-side state goes under `~/.scripticus/`
 (override with `SCRIPTICUS_HOME`, which tests rely on). The server is a
 FastAPI app (`app.py`) exposing `GET /health`, `GET /version`,
 `GET /whoami` (pass-through Gitea token verification, D40), and the
@@ -123,13 +131,16 @@ $ uv build --package scripticus-server
 ## Releasing
 
 Releases are tag-driven, one tag per package: pushing `client-vX.Y.Z`
-releases `scripticus` to PyPI, `schema-vX.Y.Z` releases `scripticus-schema`
+releases `scripticus` to PyPI, `schema-vX.Y.Z` releases `scripticus-schema`,
+`common-vX.Y.Z` releases `scripticus-common`
 (`.github/workflows/release.yml` — one independent run per pushed tag, so
 tagging several packages at once is fine). The tag's version is stamped
-into the member's `pyproject.toml` at build time. A client release waits
-for a PyPI `scripticus-schema` satisfying the client's pin before
-publishing (D29); the pipx-install validation runs only for `client-v*`
-releases. A `server-v*` tag additionally pushes a Docker image to
+into the member's `pyproject.toml` at build time. A release waits for a PyPI
+release satisfying every internal pin before publishing (D29/D51): `common`
+pins nothing, `schema` pins `common`, and `client`/`server` pin both — so the
+publish order is common → schema → client/server, which the workflow enforces
+by polling each pin's installability. The pipx-install validation runs only
+for `client-v*` releases. A `server-v*` tag additionally pushes a Docker image to
 `kevinchannon/scripticus-server` (version + `latest` tags) after the PyPI
 publish succeeds; this needs the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
 repo secrets.
@@ -139,11 +150,13 @@ repo secrets.
 - Workspace root [pyproject.toml](pyproject.toml) is virtual (no `[project]`
   table) — it declares workspace members and shared pytest config (importlib
   import mode, so same-named test modules in different members coexist).
-- `schema/` is a dependency of the other members, declared as a normal PyPI
-  dependency with tight same-minor bounds plus a `[tool.uv.sources]`
-  workspace source (D29). Built wheels do not vendor it: `scripticus-schema`
-  must be published to PyPI before any client/server release that bumps its
-  pin.
+- `schema/` and `common/` are the shared members, each declared by its
+  consumers as a normal PyPI dependency with tight same-minor bounds plus a
+  `[tool.uv.sources]` workspace source (D29/D51). `common` depends on nothing;
+  `schema` depends on `common` (the manifest reuses its semver grammar);
+  `client`/`server` depend on both. Built wheels do not vendor workspace
+  members, so a shared package must be published to PyPI before any dependent
+  release that bumps its pin (common before schema before client/server).
 - `client/` and `server/` are structured identically (src layout, `uv_build`
   backend): a Typer app in `cli.py` mapped to the console script
   (`scripticus` → `scripticus.cli:app`, `scripticus-svr` →

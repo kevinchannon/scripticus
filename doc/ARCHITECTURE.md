@@ -95,7 +95,7 @@ Correctness is the package author's responsibility.
 
 A dependency spec — the string value of a `[dependencies.packages]` entry
 and the `@<spec>` in `install pkg@<spec>` — is an npm/cargo-style range,
-parsed by `scripticus_schema.version_spec`. The grammar:
+parsed by `scripticus_common.version_spec`. The grammar:
 
 - **Caret** `^1.2.3`: `>=1.2.3` and `<2.0.0`. The upper bound comes from
   the left-most non-zero component, so `^0.2.3` is `<0.3.0` and `^0.0.3`
@@ -173,7 +173,7 @@ a batch of one, validated against already-committed index state.
   what's installed), with `--installed`/`--available` to restrict. The glob
   runs server-side via `GET /packages` (the identity counterpart to
   `/search`'s content match); the installed section is globbed on the client
-  against the lockfile, using the *same* `scripticus_schema.identity_glob`
+  against the lockfile, using the *same* `scripticus_common.identity_glob`
   primitive so the two sections agree exactly — `fnmatch`, never SQL `LIKE`
   (D50). `list` deduplicates an identity across remotes, deliberately unlike
   `search`.

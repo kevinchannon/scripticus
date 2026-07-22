@@ -12,7 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from scripticus_schema.semver import SEMVER_RE
+from scripticus_common.semver import SEMVER_RE
 
 # Package names are kebab-case (enforced again at publish; validated
 # client-side so authors find out before they have written any code).

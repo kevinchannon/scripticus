@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from scripticus_common.treehash import tree_hash
 from scripticus_schema.manifest import (
     FORMAT_GROUPS,
     NAMESPACE_RE,
@@ -41,7 +42,6 @@ from scripticus_schema.manifest import (
     load_manifest,
 )
 from scripticus_schema.publish_api import PublishedArtifact, PublishResult
-from scripticus_schema.treehash import tree_hash
 from scripticus_server import db
 from scripticus_server.db import get_session
 from scripticus_server.gitea import (

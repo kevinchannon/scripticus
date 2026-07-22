@@ -1,0 +1,17 @@
+[project]
+name = "scripticus-common"
+version = "0.0.0.dev0"
+description = "A package manager and registry for scripts — shared pure helpers: hashing, versioning, identity globbing"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

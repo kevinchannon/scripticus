@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["client", "schema", "server"]
+members = ["client", "common", "schema", "server"]
 
 [tool.pytest.ini_options]
 # importlib mode lets same-named test modules in different members coexist

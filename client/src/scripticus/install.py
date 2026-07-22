@@ -30,9 +30,9 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from scripticus_common.semver import semver_key
+from scripticus_common.treehash import tree_hash
 from scripticus_schema.manifest import LANGUAGES, Manifest, commands_of, load_manifest
-from scripticus_schema.semver import semver_key
-from scripticus_schema.treehash import tree_hash
 
 
 class InstallError(Exception):

@@ -28,7 +28,7 @@ with a release candidate.
 
 from collections.abc import Callable, Iterable
 
-from scripticus_schema.semver import SEMVER_RE, semver_key
+from scripticus_common.semver import SEMVER_RE, semver_key
 
 _COMPARATORS = ("<=", ">=", "<", ">", "=")
 

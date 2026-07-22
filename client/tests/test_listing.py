@@ -15,7 +15,7 @@ from scripticus.cli import app
 from scripticus.config import Remote, save_remotes
 from scripticus.listing import build_listing
 from scripticus.search import SearchError
-from scripticus_schema.identity_glob import matches as identity_matches
+from scripticus_common.identity_glob import matches as identity_matches
 
 runner = CliRunner()
 

@@ -5,14 +5,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from scripticus_schema.identity_glob import matches as identity_matches
+from scripticus_common.identity_glob import matches as identity_matches
+from scripticus_common.semver import semver_key
 from scripticus_schema.index_api import (
     PackageSummary,
     PackageVersions,
     SearchResults,
     VersionSummary,
 )
-from scripticus_schema.semver import semver_key
 from scripticus_schema.whoami_api import WhoAmI
 from scripticus_server import __version__, db
 from scripticus_server.db import get_session

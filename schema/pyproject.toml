@@ -1,13 +1,19 @@
 [project]
 name = "scripticus-schema"
 version = "0.0.0.dev0"
-description = "A package manager and registry for scripts — shared contract: manifest schema, identity, versioning"
+description = "A package manager and registry for scripts — shared wire and manifest schema"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
     "pydantic>=2.7",
+    # The manifest reuses common's version grammar; same-minor bound (D29/D51):
+    # an older schema must not pick up a future common release that changed it.
+    "scripticus-common>=0.1.0,<0.2.0",
 ]
+
+[tool.uv.sources]
+scripticus-common = { workspace = true }
 
 [dependency-groups]
 dev = [

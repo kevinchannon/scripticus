@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 [manifest]
 members = [
     "scripticus",
+    "scripticus-common",
     "scripticus-schema",
     "scripticus-server",
 ]
@@ -443,6 +444,7 @@ source = { editable = "client" }
 dependencies = [
     { name = "httpx" },
     { name = "rich" },
+    { name = "scripticus-common" },
     { name = "scripticus-schema" },
     { name = "typer" },
 ]
@@ -456,9 +458,25 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "rich", specifier = ">=13" },
+    { name = "scripticus-common", editable = "common" },
     { name = "scripticus-schema", editable = "schema" },
     { name = "typer", specifier = ">=0.16" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
+
+[[package]]
+name = "scripticus-common"
+version = "0.0.0.dev0"
+source = { editable = "common" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]
@@ -469,6 +487,7 @@ version = "0.0.0.dev0"
 source = { editable = "schema" }
 dependencies = [
     { name = "pydantic" },
+    { name = "scripticus-common" },
 ]
 
 [package.dev-dependencies]
@@ -477,7 +496,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.7" }]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "scripticus-common", editable = "common" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]
@@ -490,6 +512,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "python-multipart" },
+    { name = "scripticus-common" },
     { name = "scripticus-schema" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
@@ -506,6 +529,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "scripticus-common", editable = "common" },
     { name = "scripticus-schema", editable = "schema" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "uvicorn", specifier = ">=0.30" },

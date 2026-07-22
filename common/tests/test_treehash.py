@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from scripticus_schema.treehash import tree_hash
+from scripticus_common.treehash import tree_hash
 
 
 def make_tree(root, files):

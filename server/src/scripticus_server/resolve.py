@@ -27,6 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from scripticus_common.semver import semver_key
+from scripticus_common.version_spec import VersionSpec, parse
 from scripticus_schema.resolve_api import (
     InstalledPackage,
     ResolvedPackage,
@@ -34,8 +36,6 @@ from scripticus_schema.resolve_api import (
     ResolveRequest,
     ResolveResult,
 )
-from scripticus_schema.semver import semver_key
-from scripticus_schema.version_spec import VersionSpec, parse
 from scripticus_server import db
 from scripticus_server.db import get_session
 

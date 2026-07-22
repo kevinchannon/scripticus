@@ -28,7 +28,7 @@ from scripticus.remote_install import (
 )
 from scripticus.scaffold import scaffold_package
 from scripticus_schema.resolve_api import ResolveRequest
-from scripticus_schema.treehash import tree_hash
+from scripticus_common.treehash import tree_hash
 
 runner = CliRunner()
 URL = "https://reg.example.com"
