@@ -46,3 +46,34 @@ author_and_publish() {
     SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_TOKEN" \
         scripticus publish "builds/$name-$version"
 }
+
+# Author + publish a bash package with an explicit [commands] table, one
+# command per (name, output) pair, each printing its output so tests can tell
+# which shim ran. Usage:
+#   author_and_publish_cmds <name> <version> <cmd> <output> [<cmd> <output> ...]
+author_and_publish_cmds() {
+    local name="$1" version="$2"
+    shift 2
+    local manifest="$name/meta.toml"
+    mkdir -p "$name/src"
+    {
+        printf '[package]\n'
+        printf 'namespace = "%s"\n' "$SCRIPTICUS_E2E_NAMESPACE"
+        printf 'name = "%s"\n' "$name"
+        printf 'version = "%s"\n' "$version"
+        printf 'language = "bash"\n'
+        printf 'description = "e2e fixture"\n\n'
+        printf '[platforms]\nos = ["linux", "macos"]\n\n'
+        printf '[commands]\n'
+    } > "$manifest"
+    while [ "$#" -gt 0 ]; do
+        local cmd="$1" out="$2"
+        shift 2
+        printf '%s = "src/%s.sh"\n' "$cmd" "$cmd" >> "$manifest"
+        printf '#!/usr/bin/env bash\necho "%s"\n' "$out" > "$name/src/$cmd.sh"
+        chmod +x "$name/src/$cmd.sh"
+    done
+    scripticus pack "$name" -o builds
+    SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_TOKEN" \
+        scripticus publish "builds/$name-$version"
+}

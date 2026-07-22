@@ -55,6 +55,13 @@ $ KEEP_UP=1 tests/run.sh
 - [`update_yank.bats`](update_yank.bats) — post-install version movement:
   `update` floating a package to a newer version, and `yank`/`--undo` moving a
   version out of and back into read-side resolution.
+- [`commands.bats`](commands.bats) — command-shim claims: a multi-command
+  package exposing a shim per command (and the guaranteed `<ns>.<pkg>.<cmd>`
+  form), `uninstall` removing a package's shims, and `use` re-pointing a
+  contested convenience shim.
+
+These check the README's claims aren't lies; the mechanics themselves are
+covered in depth by the pytest suite.
 
 Each test authors a uniquely-named package (Gitea persists for the whole run,
 so identities must not collide between tests) and gets a fresh, isolated
