@@ -1662,3 +1662,43 @@ publish with no new auth surface.
   the entire version; per-variant yank stays deferred.
 - Bad: yank/un-yank can flip-flop a version's visibility indefinitely, with the
   index recording only the current state, not the history of changes.
+
+## D55. End-to-end tests are BATS driving the real CLI against a from-source stack
+
+**Decision**: The full-stack e2e suite lives in `tests/` and is BATS-driven,
+not pytest: `tests/run.sh` stands the whole registry bundle (proxy + index +
+Gitea) up from source and runs `.bats` specs inside a client container that
+drives the real `scripticus` binary over the D45 front URL, checking the
+claims the client README makes (author → pack → login → publish →
+`search`/`list` → install → run the shim, plus `update` and `yank`). The stack
+is the shipped `docker-compose.yml` **plus** a `tests/docker-compose.e2e.yml`
+overlay: the overlay switches `index` from the published image to a build from
+`server/Dockerfile`, adds a `client-test` service whose image `pip install`s
+the repo's locally-built wheels (not `uv run`), and `!reset`s the host port
+mappings so the stack is fully internal. Gitea is bootstrapped (a user + token,
+since a namespace *is* a Gitea user, D2/D4) over the network before the specs
+run. This replaces the old pytest `e2e` marker and `server/tests/test_e2e_gitea.py`.
+
+**Reason**: Scripticus is fundamentally a CLI, so the highest-value e2e check is
+a black box driving the real binary against a real server — which a pytest
+`TestClient` (in-process, faking Gitea via `gitea.py`) structurally cannot be.
+BATS reads as CLI transcripts and keeps the tests honestly at arm's length from
+the Python internals. Building from source in the overlay makes a run also
+prove `server/Dockerfile` and the client wheel-install path still work, and the
+compose overlay (rather than editing the shipped file) preserves the README's
+source-free, one-command standup promise for real operators. Resetting host
+ports makes the suite hermetic — it never collides with a dev stack on
+`:3000`/`:8000` — so the same `tests/run.sh` runs identically locally and in CI.
+
+**Consequences**:
+- Good: exercises the real client, real server, real Gitea, real Dockerfiles,
+  and the real pip-install path in one run — the widest coverage the project
+  has, validating the README's claims directly.
+- Good: hermetic and CI-identical; no host-port coupling, no shared state with
+  a developer's running stack.
+- Bad: a second test toolchain (BATS + Docker) alongside pytest, and a run
+  costs image builds + a full stack standup — minutes, not the pytest seconds,
+  so it is a CI/pre-merge gate, not an inner-loop test.
+- Bad: fixtures publish under one bootstrapped namespace into a Gitea that
+  persists for the whole run, so specs must use unique package identities to
+  avoid cross-test collisions.

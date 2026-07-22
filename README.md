@@ -51,6 +51,14 @@ $ uv build --package scripticus-server
 
 All members share a single lockfile (`uv.lock`) and virtual environment.
 
+The full-stack end-to-end tests are separate — they stand the whole registry
+bundle up from source in Docker and drive the real client against it (see
+[tests/README.md](tests/README.md)):
+
+```console
+$ tests/run.sh                        # build, stand up, test, tear down
+```
+
 ## Licence
 
 MIT
