@@ -13,3 +13,4 @@ build/
 # Test / tooling caches
 .pytest_cache/
 .ruff_cache/
+.tasktree-state
