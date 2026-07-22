@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from scripticus_common.semver import semver_key
 from scripticus_common.version_spec import VersionSpec, parse
 from scripticus_schema.resolve_api import (
+    HeldBack,
     InstalledPackage,
     ResolvedPackage,
     ResolvedTool,
@@ -100,7 +101,7 @@ def _solve(
     platform: str,
     constraints: dict[str, tuple[str, ...]],
     assignment: dict[str, str],
-    installed: dict[str, str],
+    preference: dict[str, str],
     failure: dict,
 ) -> dict[str, str] | None:
     unassigned = sorted(p for p in constraints if p not in assignment)
@@ -115,7 +116,7 @@ def _solve(
         failure["reason"] = f"has no artifact for platform '{platform}'"
         return None
     satisfying = [
-        v for v in _order_candidates(available, installed.get(package))
+        v for v in _order_candidates(available, preference.get(package))
         if _matches_all(parsed, v)
     ]
     if not satisfying:
@@ -135,7 +136,7 @@ def _solve(
         contradicted = _inconsistent_package(frozen, next_assignment)
         if contradicted is None:
             result = _solve(
-                index, platform, frozen, next_assignment, installed, failure
+                index, platform, frozen, next_assignment, preference, failure
             )
             if result is not None:
                 return result
@@ -159,6 +160,71 @@ def _inconsistent_package(
         if not _matches_all((parse(s) for s in constraints.get(package, ())), version):
             return package
     return None
+
+
+def _diagnose_held_back(
+    index: Index,
+    platform: str,
+    root: str,
+    requested_spec: str,
+    seed: dict[str, list[str]],
+    sources: dict[str, list[tuple[str, str]]],
+    chosen: str,
+) -> HeldBack | None:
+    """Why ``root`` did not reach the newest version its *own* spec allows (D52).
+
+    Runs only for a root the solver could not take to the top: finds the
+    highest available version the requested spec permits above ``chosen``,
+    then *probes* whether the closure could hold the root there. If not, the
+    probe's failure names the conflict at its centre. A single bounded probe
+    over the same shallow acyclic graph (D33), not a re-solve of the whole
+    request.
+    """
+    requested = parse(requested_spec)
+    higher = [
+        v
+        for v in index.candidates(root, platform)
+        if semver_key(v) > semver_key(chosen) and requested.matches(v)
+    ]
+    if not higher:
+        return None  # chosen is already the best the requested spec allows
+    target = max(higher, key=semver_key)
+
+    # Probe: pin root at `target` (seed its own deps) and try to complete the
+    # rest. `seed` already carries every other package's constraints, so a
+    # conflict surfaces either on the root itself (a direct cap) or on a
+    # shared dependency the newer root pulls in.
+    constraints: dict[str, list[str]] = defaultdict(list, {k: list(v) for k, v in seed.items()})
+    for dep_target, dep_spec in index.dependencies(root, target):
+        constraints[dep_target].append(dep_spec)
+    frozen = {k: tuple(v) for k, v in constraints.items()}
+    assignment = {root: target}
+
+    failure: dict = {}
+    contradicted = _inconsistent_package(frozen, assignment)
+    if contradicted is None:
+        result = _solve(index, platform, frozen, assignment, {}, failure)
+        if result is not None:
+            return None  # target is actually reachable — nothing holding it back
+    else:
+        failure = {
+            "package": contradicted,
+            "reason": f"no version satisfies {list(frozen[contradicted])}",
+        }
+
+    blocker = failure.get("package", root)
+    # When the root itself is the contradiction, the useful name is whichever
+    # *other* package's edge caps it — surface that as the blocker instead.
+    if blocker == root:
+        for spec, source in sources.get(root, []):
+            if not parse(spec).matches(target):
+                blocker = source.split("@", 1)[0]
+                break
+    return HeldBack(
+        available=target,
+        blocked_by=blocker,
+        detail=failure.get("reason", "constraints exclude the newer version"),
+    )
 
 
 def _topological(assignment: dict[str, str], index: Index) -> list[str]:
@@ -192,21 +258,39 @@ def _topological(assignment: dict[str, str], index: Index) -> list[str]:
 
 def resolve_closure(
     index: Index,
-    root: str,
-    spec: str,
+    roots: list[tuple[str, str]],
     platform: str,
     installed: list[InstalledPackage],
+    upgrade: bool = False,
 ) -> ResolveResult:
     installed_versions = {entry.package: entry.version for entry in installed}
+    root_specs = {package: (spec or "*") for package, spec in roots}
+    root_packages = set(root_specs)
 
-    # Seed: installed packages' own constraints on any package are hard
-    # constraints (don't break an installed dependent); the root carries the
-    # requested spec.
+    # Under `upgrade` (update, D52), roots float: they are dropped from the
+    # installed-version preference set, so the solver tries their newest first
+    # rather than keeping the installed one. Without it (install), an installed
+    # root stays preferred — pip's "already satisfied", no silent upgrade.
+    # Every non-root installed package stays preferred either way, so it does
+    # not move unless a dependency forces it.
+    floated = root_packages if upgrade else set()
+    preference = {p: v for p, v in installed_versions.items() if p not in floated}
+
+    # Seed: a non-root installed package's dependency edges are hard
+    # constraints (don't break an installed dependent, D42); a root's own
+    # installed edges are *not* seeded — it is being re-resolved — but its
+    # requested spec is. `seed` also records which package contributed each
+    # constraint, so the held-back diagnostic can name the blocker.
     seed: dict[str, list[str]] = defaultdict(list)
+    sources: dict[str, list[tuple[str, str]]] = defaultdict(list)  # target -> (spec, source)
     for package, version in installed_versions.items():
+        if package in root_packages:
+            continue
         for target, dep_spec in index.dependencies(package, version):
             seed[target].append(dep_spec)
-    seed[root].append(spec or "*")
+            sources[target].append((dep_spec, f"{package}@{version}"))
+    for package, spec in root_specs.items():
+        seed[package].append(spec)
 
     failure: dict = {}
     assignment = _solve(
@@ -214,13 +298,21 @@ def resolve_closure(
         platform,
         {k: tuple(v) for k, v in seed.items()},
         {},
-        installed_versions,
+        preference,
         failure,
     )
     if assignment is None:
         if failure:
             raise ResolutionError(f"'{failure['package']}' {failure['reason']}")
-        raise ResolutionError(f"could not resolve '{root}'")
+        raise ResolutionError(f"could not resolve {sorted(root_packages)}")
+
+    # Only an upgrade tries to move a root, so only then can one be held back.
+    held_back = {
+        package: _diagnose_held_back(
+            index, platform, package, root_specs[package], seed, sources, assignment[package]
+        )
+        for package in (root_packages if upgrade else set())
+    }
 
     packages = []
     for package in _topological(assignment, index):
@@ -234,9 +326,10 @@ def resolve_closure(
                 version=version,
                 content_hash=artifact.content_hash,
                 download_pointer=artifact.download_pointer,
-                direct=(package == root),
+                direct=(package in root_packages),
                 already_satisfied=installed_versions.get(package) == version,
                 commands=index.commands(package, version),
+                held_back=held_back.get(package),
             )
         )
 
@@ -321,11 +414,18 @@ def resolve(
     request: ResolveRequest, session: Session = Depends(get_session)
 ) -> ResolveResult:
     index = DbIndex(session)
-    if not index.exists(request.root):
-        raise HTTPException(404, f"no package '{request.root}' in the index")
+    if not request.roots:
+        raise HTTPException(422, "resolve needs at least one root")
+    for root in request.roots:
+        if not index.exists(root.package):
+            raise HTTPException(404, f"no package '{root.package}' in the index")
     try:
         return resolve_closure(
-            index, request.root, request.spec, request.platform, request.installed
+            index,
+            [(root.package, root.spec) for root in request.roots],
+            request.platform,
+            request.installed,
+            request.upgrade,
         )
     except ResolutionError as exc:
         raise HTTPException(422, str(exc)) from exc

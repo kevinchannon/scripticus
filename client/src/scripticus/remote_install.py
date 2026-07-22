@@ -47,6 +47,7 @@ from scripticus_schema.resolve_api import (
     ResolvedPackage,
     ResolveRequest,
     ResolveResult,
+    Root,
 )
 
 
@@ -159,7 +160,9 @@ def resolve_root(
     one), returning the resolving remote and its closure. Stops at the first
     remote whose index has the root (D46).
     """
-    request = ResolveRequest(root=root, spec=spec, platform=platform, installed=installed)
+    request = ResolveRequest(
+        roots=[Root(package=root, spec=spec)], platform=platform, installed=installed
+    )
 
     if forced is not None:
         remote = find_remote(remotes, forced)

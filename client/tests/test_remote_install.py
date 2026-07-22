@@ -161,7 +161,9 @@ def _resolve_only(monkeypatch, per_remote):
 
 
 def _empty_request():
-    return ResolveRequest(root="acme/x", spec="", platform="linux", installed=[])
+    return ResolveRequest(
+        roots=[{"package": "acme/x", "spec": ""}], platform="linux", installed=[]
+    )
 
 
 def test_resolve_root_stops_at_first_remote_hosting_the_root(monkeypatch):
@@ -247,7 +249,8 @@ def test_remote_install_resolves_downloads_verifies_and_installs(home, tmp_path,
     # The resolve request carried the platform and an (empty) installed closure.
     resolve_req = next(r for r in requests if r.url.path == "/resolve")
     body = json.loads(resolve_req.read())
-    assert body["root"] == "acme/my-tool"
+    assert body["roots"] == [{"package": "acme/my-tool", "spec": ""}]
+    assert body["upgrade"] is False
     assert body["installed"] == []
     # The blob was fetched with the stored token.
     blob_req = next(r for r in requests if r.url.path == pointer)

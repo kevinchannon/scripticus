@@ -65,13 +65,13 @@ class FakeIndex:
         return dict(meta["commands"]) if meta else {}
 
 
-def resolve(index, root, spec="", platform="linux", installed=None):
+def resolve(index, root, spec="", platform="linux", installed=None, roots=None, upgrade=False):
     return resolve_closure(
         index,
-        root,
-        spec,
+        roots if roots is not None else [(root, spec)],
         platform,
         [InstalledPackage(package=p, version=v) for p, v in (installed or {}).items()],
+        upgrade,
     )
 
 
@@ -190,6 +190,142 @@ def test_installed_but_unknown_package_does_not_constrain():
     assert versions_of(result) == {"a/lib": "2.0.0"}
 
 
+# --- Update: floating roots and the held-back diagnostic (D52) --------------
+
+
+def held_back(result, package):
+    ns, _, name = package.partition("/")
+    entry = next(p for p in result.packages if p.namespace == ns and p.name == name)
+    return entry.held_back
+
+
+def test_install_does_not_upgrade_an_installed_root():
+    # Plain install of an already-installed root leaves it put (pip's
+    # "already satisfied") — the root stays preferred without `upgrade`.
+    index = FakeIndex().add("a/foo", "1.0.0").add("a/foo", "1.2.0")
+    result = resolve(index, "a/foo", installed={"a/foo": "1.0.0"})
+    assert versions_of(result) == {"a/foo": "1.0.0"}
+    assert result.packages[0].already_satisfied is True
+
+
+def test_update_floats_an_installed_root_to_newest():
+    index = FakeIndex().add("a/foo", "1.0.0").add("a/foo", "1.2.0")
+    result = resolve(index, "a/foo", installed={"a/foo": "1.0.0"}, upgrade=True)
+    assert versions_of(result) == {"a/foo": "1.2.0"}
+    assert held_back(result, "a/foo") is None
+
+
+def test_update_floats_only_its_targets_leaving_others_untouched():
+    # bar is installed but neither a target nor in foo's closure, so it is not
+    # in the resolved set at all — the update transaction never touches it,
+    # even though bar 2.0.0 exists.
+    index = (
+        FakeIndex()
+        .add("a/foo", "1.0.0").add("a/foo", "1.5.0")
+        .add("a/bar", "1.0.0").add("a/bar", "2.0.0")
+    )
+    result = resolve(
+        index, "a/foo", installed={"a/foo": "1.0.0", "a/bar": "1.0.0"}, upgrade=True
+    )
+    assert versions_of(result) == {"a/foo": "1.5.0"}
+
+
+def test_update_holds_a_shared_dep_at_a_non_target_dependents_cap():
+    # foo and bar both installed and both depend on lib; only foo is updated.
+    # foo@2.0 would pull lib@^2, but bar (untouched) still pins lib@^1, so lib
+    # is held and foo cannot reach 2.0.
+    index = (
+        FakeIndex()
+        .add("a/foo", "1.0.0", deps={"a/lib": "^1"})
+        .add("a/foo", "2.0.0", deps={"a/lib": "^2"})
+        .add("a/bar", "1.0.0", deps={"a/lib": "^1"})
+        .add("a/lib", "1.5.0").add("a/lib", "2.0.0")
+    )
+    result = resolve(
+        index,
+        "a/foo",
+        installed={"a/foo": "1.0.0", "a/bar": "1.0.0", "a/lib": "1.5.0"},
+        upgrade=True,
+    )
+    assert versions_of(result)["a/foo"] == "1.0.0"
+    assert versions_of(result)["a/lib"] == "1.5.0"
+
+
+def test_update_all_floats_every_named_root():
+    index = (
+        FakeIndex()
+        .add("a/foo", "1.0.0").add("a/foo", "1.5.0")
+        .add("a/bar", "1.0.0").add("a/bar", "2.0.0")
+    )
+    result = resolve(
+        index,
+        None,
+        roots=[("a/foo", ""), ("a/bar", "")],
+        installed={"a/foo": "1.0.0", "a/bar": "1.0.0"},
+        upgrade=True,
+    )
+    assert versions_of(result) == {"a/foo": "1.5.0", "a/bar": "2.0.0"}
+
+
+def test_held_back_by_an_installed_dependent():
+    # app (installed, not a target) depends on plugin@^1, so updating plugin
+    # cannot reach 2.0.0 — the diagnostic names app and explains why.
+    index = (
+        FakeIndex()
+        .add("a/app", "1.0.0", deps={"a/plugin": "^1"})
+        .add("a/plugin", "1.5.0").add("a/plugin", "2.0.0")
+    )
+    result = resolve(
+        index,
+        "a/plugin",
+        installed={"a/app": "1.0.0", "a/plugin": "1.5.0"},
+        upgrade=True,
+    )
+    assert versions_of(result)["a/plugin"] == "1.5.0"
+    hb = held_back(result, "a/plugin")
+    assert hb is not None
+    assert hb.available == "2.0.0"
+    assert hb.blocked_by == "a/app"
+
+
+def test_held_back_by_a_shared_dependency_conflict():
+    # foo@2.0 needs lib@^2, but installed app pins lib@^1, so updating foo is
+    # capped at 1.x. The conflict centres on the shared lib.
+    index = (
+        FakeIndex()
+        .add("a/app", "1.0.0", deps={"a/lib": "^1"})
+        .add("a/foo", "1.0.0", deps={"a/lib": "^1"})
+        .add("a/foo", "2.0.0", deps={"a/lib": "^2"})
+        .add("a/lib", "1.5.0").add("a/lib", "2.0.0")
+    )
+    result = resolve(
+        index,
+        "a/foo",
+        installed={"a/app": "1.0.0", "a/foo": "1.0.0", "a/lib": "1.5.0"},
+        upgrade=True,
+    )
+    assert versions_of(result)["a/foo"] == "1.0.0"
+    hb = held_back(result, "a/foo")
+    assert hb is not None
+    assert hb.available == "2.0.0"
+    assert hb.blocked_by == "a/lib"
+
+
+def test_not_held_back_when_target_is_reachable():
+    index = FakeIndex().add("a/foo", "1.0.0").add("a/foo", "2.0.0")
+    result = resolve(index, "a/foo", installed={"a/foo": "1.0.0"}, upgrade=True)
+    assert versions_of(result) == {"a/foo": "2.0.0"}
+    assert held_back(result, "a/foo") is None
+
+
+def test_update_respects_a_narrowing_spec_without_flagging_held_back():
+    # `update foo@^1` asks to stay in 1.x; 2.0.0 existing is not "held back".
+    index = FakeIndex().add("a/foo", "1.0.0").add("a/foo", "1.5.0").add("a/foo", "2.0.0")
+    result = resolve(index, "a/foo", spec="^1", installed={"a/foo": "1.0.0"}, upgrade=True)
+    assert versions_of(result) == {"a/foo": "1.5.0"}
+    assert held_back(result, "a/foo") is None
+
+
 # --- Platform, yank, tools --------------------------------------------------
 
 
@@ -273,14 +409,16 @@ def seed(session_factory, namespace, name, version, **kwargs):
         session.commit()
 
 
-def post_resolve(client, root, spec="", platform="linux", installed=None):
+def post_resolve(
+    client, root, spec="", platform="linux", installed=None, roots=None, upgrade=False
+):
     return client.post(
         "/resolve",
         json={
-            "root": root,
-            "spec": spec,
+            "roots": roots if roots is not None else [{"package": root, "spec": spec}],
             "platform": platform,
             "installed": installed or [],
+            "upgrade": upgrade,
         },
     )
 
