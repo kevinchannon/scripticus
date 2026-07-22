@@ -1509,49 +1509,70 @@ familiar name is safe once the charter carries the rule the name doesn't.
 
 ---
 
-## D52. `update` is conservative: floats its targets, freezes the rest, never breaks or downgrades
+## D52. `update` is conservative: floats its targets, prefers the rest, never breaks or downgrades
 
 **Decision**: `update [<pkg>...]` reuses the whole remote-install back half
 (plan → confirm → stage/verify → apply, D42/D46); it differs only in how the
-`/resolve` request is built. To express "these installed packages may move up,
-everything else stays put," `ResolveRequest.root: str` generalises to
-`roots: list` of `{package, spec}`: `install X` is one root over a
-fully-pinned installed closure; `update X Y` sends X and Y as open-spec roots
-with the *rest* of the closure still sent as hard pins; bare `update` makes
-every direct remote-provenance package a root. Because non-target packages
-stay pinned, update is conservative by construction — it picks the newest
-target version compatible with the frozen remainder, and when a shared
-constraint holds a target below its latest it says so and names the blocking
-package rather than reporting "up to date." It never downgrades (best-available
-< installed is "no update," not a downgrade), and a genuinely unsatisfiable
-request is the same hard error as install (D17: nothing changes, no partial
-state), with the escape being to widen the target set so the blockers can move
-too. Local-provenance (`-f`) entries are skipped with a warning (D20).
+`/resolve` request is built. `ResolveRequest.root: str` generalises to
+`roots: list` of `{package, spec}`: `install X` is one root; `update X Y`
+sends X and Y as roots; bare `update` makes every direct remote-provenance
+package a root. The lever that makes a package *move* is that a root is
+**dropped from the solver's installed-version preference set** — the solver
+otherwise tries each installed package's current version first (D42), so a
+non-root stays put unless a dependency forces it, while a root takes the
+newest satisfying version. This is *prefer*, not *pin*: nothing is hard-pinned
+to its installed version; the only hard constraints are packages' dependency
+edges (which is what stops update from ever breaking an installed
+*dependent*). Update is therefore conservative by construction — it picks the
+newest target version compatible with everything else — and never downgrades
+(best-available < installed is "no update," not a downgrade). The version spec
+is not stored (the lockfile records resolved versions, not user intent), so
+`update` always means *newest satisfying*, not "newest within the range you
+first asked for." A genuinely unsatisfiable request is the same hard error as
+install (D17: nothing changes, no partial state), escaped by widening the
+target set so the blockers can move too. Local-provenance (`-f`) entries are
+skipped with a warning (D20).
 
-**Reason**: The resolver already treats the installed closure as hard
-constraints so install "neither breaks nor needlessly bumps" it (D42);
-update is the same solver with the target's pin *released*, so the safety
-properties come for free. Single-version-per-closure (D15) forbids doing
+When a shared constraint holds a target below its latest, resolution still
+*succeeds* at the lower version — so to avoid a silent "up to date," the
+server runs a bounded **post-solve diagnostic**: for each root whose chosen
+version is below the highest available, it finds which already-assigned
+package's dependency spec excludes the higher version and returns that on the
+resolved package as `held_back: {available, blocked_by, spec}`. The client
+surfaces it ("X held at 1.5 — 2.0 needs lib@^2, required by Y@3.1") instead of
+reporting no update. The pass is cheap: the solver already holds every
+constraint, so it is a single walk, not a re-solve.
+
+**Reason**: install already "neither breaks nor needlessly bumps" the
+installed closure (D42) purely through the preference ordering plus
+dependency-edge hard constraints; update is the same solver with the target
+removed from the preference set, so the safety properties come for free and
+no pinning machinery is needed. Single-version-per-closure (D15) forbids
 update-all as a loop of single-target updates — a shared dep bumped by one
 target then constrains the next, making the result order-dependent — so
 update-all needs a genuine multi-root resolve, which is why the contract
-grows a `roots` list rather than update faking it client-side. Naming the
-blocker turns the most common "why won't it update?" confusion into a
-self-explaining message. Auto-cascading through blockers (a `--latest` that
-bumps un-asked-for packages) is deliberately deferred: conservative-plus-
-name-the-blocker keeps v1 update from surprising anyone.
+grows a `roots` list rather than update faking it client-side. The held-back
+diagnostic is what makes update usable rather than infuriating: without it a
+held-back package is indistinguishable from an up-to-date one. Auto-cascading
+through blockers (a `--latest` that bumps un-asked-for packages) is
+deliberately deferred: conservative-plus-name-the-blocker keeps v1 update
+from surprising anyone.
 
 **Consequences**:
-- Good: update is mostly install — one request-construction difference, one
-  policy layer (no-downgrade, name-the-blocker), zero new fetch/apply code.
+- Good: update is mostly install — one request-construction difference (drop
+  targets from the preference set), one policy layer (no-downgrade), and one
+  server-side diagnostic; zero new fetch/apply code.
 - Good: update can never break an installed closure; the worst case is a
   held-back package with an explanation, or a clean hard error.
 - Good: `roots: list` unifies install and update at the API and leaves room
   for multi-package install later.
 - Bad: a user wanting a target at its absolute latest may have to name the
   blocking packages too — intended friction, but friction.
-- Bad: the server solver must accept multiple free roots against a pinned
-  remainder, a modest generalisation of the single-root path.
+- Bad: the resolver grows a post-solve diagnostic pass and the response a
+  `held_back` field — small, but a new obligation the solver must maintain.
+- Bad: because the requested spec is never stored, `update` cannot honour an
+  original range (`install foo@^1` then `update foo` may cross to 2.x); a user
+  who wants to stay in a range must re-pin with `install foo@^1` explicitly.
 
 ---
 

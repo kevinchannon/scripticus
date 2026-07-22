@@ -78,9 +78,9 @@ control rather than cryptographic assurance.
       the installed closure enters as hard constraints so resolution
       neither breaks nor needlessly bumps installed packages. An
       unsatisfiable window is a hard error. The request carries a list of
-      roots (D52): install sends one over a fully-pinned closure, `update`
-      sends its targets as open-spec roots with the rest of the closure still
-      pinned.
+      roots (D52): install sends one, `update` sends its targets as roots and
+      drops them from the installed-version preference set so they float while
+      the rest stays put.
 - [x] Cycle detection at publish time.
 - [x] Token-verification endpoint: `GET /whoami`, a whoami-style
       pass-through of the caller's Gitea token, so the client can verify a
@@ -169,12 +169,14 @@ installed command directly invocable by its namespaced names instead.
       local-provenance packages.
 - [ ] `update [<pkg>...]` (D52/D53): re-resolve installed remote-provenance
       packages, reusing install's plan/confirm/stage/apply back half. Its
-      targets float while the rest of the closure stays pinned (via the
-      `roots: list` resolve request, D52), so it is conservative — picks the
-      newest compatible version, never downgrades, and when a shared
-      constraint holds a target back it names the blocking package rather than
-      reporting "up to date"; an unsatisfiable request is install's hard error
-      (D17), escaped by widening the target set. A version whose command set
+      targets are dropped from the solver's installed-version preference set
+      (via the `roots: list` resolve request, D52) so they float while the
+      rest stays put, so it is conservative — picks the newest compatible
+      version, never downgrades, and when a shared constraint holds a target
+      back a post-solve diagnostic returns `held_back` so the client names the
+      blocking package rather than reporting "up to date"; an unsatisfiable
+      request is install's hard error (D17), escaped by widening the target
+      set. A version whose command set
       shrinks reconciles the dropped convenience shims through the D28 uninstall
       picker; system tools are never removed, only advised on when the closure
       no longer needs them (D53). Bare `update` targets every direct remote

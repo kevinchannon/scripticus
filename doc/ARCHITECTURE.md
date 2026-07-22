@@ -197,13 +197,18 @@ a batch of one, validated against already-committed index state.
   version satisfying the intersection of every constraint reaching it,
   with the installed packages entered as **hard constraints** — so a
   resolve neither breaks an already-installed package nor needlessly bumps
-  one that still satisfies. This root-list-over-pinned-remainder shape is
-  what makes `install` and `update` the same call (D52): `install` sends one
-  root over a fully-pinned closure, while `update` promotes its targets to
-  open-spec roots and leaves the rest of the closure pinned — so update is
-  conservative (newest target compatible with the frozen remainder), and a
-  target held below its latest by a shared constraint is reported with the
-  blocking package named rather than silently. It returns a flat closure of (package, exact
+  one that still satisfies. To be precise about the mechanism: an installed
+  package is *preferred* at its current version (its version sorts first), not
+  hard-pinned to it — the only hard constraints are the packages' dependency
+  edges, which is what keeps a resolve from breaking an installed dependent.
+  This roots-list shape is what makes `install` and `update` the same call
+  (D52): `install` sends one root, while `update` sends its targets as roots
+  and drops them from the installed-version preference set so they float while
+  the rest stays put. So update is conservative (newest target compatible with
+  everything else), and when a shared constraint holds a target below its
+  latest a bounded post-solve diagnostic returns `held_back`
+  (`available`/`blocked_by`/`spec`) so the client can name the blocking package
+  rather than silently reporting no update. It returns a flat closure of (package, exact
   version, content hash, Gitea pointer, direct/transitive, command map)
   plus the aggregated tool requirements. Each package's command→script-path
   map (the index's manifest projection, D21) rides along so the client can
