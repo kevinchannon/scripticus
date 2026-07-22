@@ -1573,6 +1573,11 @@ from surprising anyone.
 - Bad: because the requested spec is never stored, `update` cannot honour an
   original range (`install foo@^1` then `update foo` may cross to 2.x); a user
   who wants to stay in a range must re-pin with `install foo@^1` explicitly.
+- Bad: since a closure is single-remote (D33), an `update` spanning several
+  remotes resolves and applies one group per remote; each group is atomic on
+  its own, but a failure partway through leaves earlier groups applied —
+  update guarantees per-remote, not cross-remote, atomicity. Moot for the
+  common single-remote case; a genuine gap only for a multi-remote fleet.
 
 ---
 
