@@ -11,7 +11,7 @@ dependencies = [
     "httpx>=0.27",
     # Same-minor bound (D29): schema and common are internal API, an older
     # client must not pick up a future release that changed either.
-    "scripticus-schema>=0.1.0,<0.2.0",
+    "scripticus-schema>=0.2.0,<0.3.0",
     "scripticus-common>=0.1.0,<0.2.0",
 ]
 

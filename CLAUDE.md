@@ -156,6 +156,34 @@ for `client-v*` releases. A `server-v*` tag additionally pushes a Docker image t
 publish succeeds; this needs the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
 repo secrets.
 
+Version numbers live only in tags (the checked-in `version` is always the
+`0.0.0.dev0` placeholder), but the internal **dependency pins do live in the
+committed `pyproject.toml`s** and must be bumped *before* tagging, since each
+release builds from its tag's commit. The pins use tight same-minor windows
+(`>=X.Y,<X.(Y+1)`), so pre-1.0 a **minor** bump is the compatibility boundary:
+a breaking change to a shared package (e.g. a wire-shape change in `schema`)
+must cross a minor and each consumer must move its pin window to match, or the
+consumer would silently accept an incompatible release.
+
+**Release runbook** (only tag the packages that actually changed since their
+last tag — `git diff --name-only <pkg>-vLAST..HEAD -- <pkg>/src`):
+
+1. **Bump the pins in one commit, up front.** If a shared package's minor is
+   moving, edit every consumer's pin window to the new minor (e.g. bumping
+   `schema` to `0.2.0` means `client`/`server` move to
+   `scripticus-schema>=0.2.0,<0.3.0`). A shared package whose minor is *not*
+   moving needs no consumer edit. Push this commit to `main`.
+2. **Push tags in dependency order, waiting for each to land on PyPI before
+   the next tier:** common → schema → client/server. The release job polls for
+   its pins for only ~5 minutes (30×10s), so a dependent pushed too early — or
+   a slow PyPI — can time the job out; pushing a tier only once its
+   dependencies are visible on PyPI keeps the poll a formality rather than a
+   race. Tags within a tier (e.g. `server` and `client`) can go together.
+
+So for a change touching schema + server + client but not common: commit the
+`client`/`server` schema-pin bump → push `schema-vX.Y.0`, wait for it on PyPI →
+push `server-vX.Y.0` and `client-vX.Y.0` together.
+
 ## Code layout
 
 - Workspace root [pyproject.toml](pyproject.toml) is virtual (no `[project]`
