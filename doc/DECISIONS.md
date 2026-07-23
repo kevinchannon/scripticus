@@ -1665,40 +1665,59 @@ publish with no new auth surface.
 
 ## D55. End-to-end tests are BATS driving the real CLI against a from-source stack
 
-**Decision**: The full-stack e2e suite lives in `tests/` and is BATS-driven,
-not pytest: `tests/run.sh` stands the whole registry bundle (proxy + index +
-Gitea) up from source and runs `.bats` specs inside a client container that
-drives the real `scripticus` binary over the D45 front URL, checking the
-claims the client README makes (author → pack → login → publish →
-`search`/`list` → install → run the shim, plus `update` and `yank`). The stack
-is the shipped `docker-compose.yml` **plus** a `tests/docker-compose.e2e.yml`
-overlay: the overlay switches `index` from the published image to a build from
-`server/Dockerfile`, adds a `client-test` service whose image `pip install`s
-the repo's locally-built wheels (not `uv run`), and `!reset`s the host port
-mappings so the stack is fully internal. Gitea is bootstrapped (a user + token,
-since a namespace *is* a Gitea user, D2/D4) over the network before the specs
-run. This replaces the old pytest `e2e` marker and `server/tests/test_e2e_gitea.py`.
+**Decision**: The full-stack e2e suite lives in `tests/`, is BATS-driven (not
+pytest), and is orchestrated by Tasktree. `tt build` builds the client wheels
+(content-cached on the packaged source via `inputs`/`outputs`); `tt unit-test`
+runs pytest against the editable workspace, independent of `build`; `tt
+e2e-test` (dep: `build`) runs `tests/e2e.sh` in a **containerised runner** — a
+toolchain image (docker CLI + compose, BATS, python) with the host Docker
+socket mounted in (**docker-out-of-docker**) and the repo auto-mounted at its
+host path. Inside it `e2e.sh` installs the client from the built wheels, stands
+the registry bundle (proxy + index + Gitea) up from source, joins the stack's
+network, bootstraps Gitea (a user + token — a namespace *is* a Gitea user,
+D2/D4), and drives the real `scripticus` binary over the D45 front URL through
+the README's claims (author → pack → login → publish → `search`/`list` →
+install → run the shim, plus `update`, `yank`, multi-command, `uninstall`,
+`use`). The stack is the shipped `docker-compose.yml` **plus** a
+`tests/docker-compose.e2e.yml` overlay that switches `index` to a build from
+`server/Dockerfile` and `!reset`s the host ports so it is fully internal —
+there is no client service, since under DooD the runner *is* the client. This
+replaces the old pytest `e2e` marker and `server/tests/test_e2e_gitea.py`.
 
 **Reason**: Scripticus is fundamentally a CLI, so the highest-value e2e check is
 a black box driving the real binary against a real server — which a pytest
 `TestClient` (in-process, faking Gitea via `gitea.py`) structurally cannot be.
-BATS reads as CLI transcripts and keeps the tests honestly at arm's length from
-the Python internals. Building from source in the overlay makes a run also
-prove `server/Dockerfile` and the client wheel-install path still work, and the
-compose overlay (rather than editing the shipped file) preserves the README's
-source-free, one-command standup promise for real operators. Resetting host
-ports makes the suite hermetic — it never collides with a dev stack on
-`:3000`/`:8000` — so the same `tests/run.sh` runs identically locally and in CI.
+BATS reads as CLI transcripts and keeps the tests at arm's length from the
+Python internals. Routing everything through Tasktree gives real task edges and
+content-scoped wheel caching (rebuild only when packaged source changes, far
+finer than a Docker `COPY . .`), and one command — `tt e2e-test` — that runs
+identically locally and in CI. DooD (a mounted host socket) rather than a
+client compose-service lets the runner both own the stack and be the client,
+and because the runner is a sibling of the bundle on one daemon it joins the
+stack network and reaches services by name; the auto-mount at the host path is
+what makes the bundle's Caddyfile bind mount resolve on the host daemon.
+Building from source proves `server/Dockerfile` still builds, and the overlay
+(not an edit to the shipped file) preserves the README's source-free,
+one-command standup for real operators; `!reset` host ports keep it hermetic.
 
 **Consequences**:
 - Good: exercises the real client, real server, real Gitea, real Dockerfiles,
-  and the real pip-install path in one run — the widest coverage the project
+  and the real wheel-install path in one run — the widest coverage the project
   has, validating the README's claims directly.
 - Good: hermetic and CI-identical; no host-port coupling, no shared state with
-  a developer's running stack.
-- Bad: a second test toolchain (BATS + Docker) alongside pytest, and a run
-  costs image builds + a full stack standup — minutes, not the pytest seconds,
-  so it is a CI/pre-merge gate, not an inner-loop test.
+  a developer's running stack; `build`'s `inputs`/`outputs` skip needless
+  wheel rebuilds.
+- Bad: a second test toolchain (BATS + Docker) alongside pytest, orchestrated
+  by Tasktree's still-maturing containerised runner; a run costs image builds +
+  a full stack standup — minutes, not the pytest seconds, so it is a
+  CI/pre-merge gate, not an inner-loop test.
+- Bad: DooD couples the run to the host Docker daemon and a socket mount
+  (`run_as_root`), and the e2e bundle appears as sibling containers on the
+  developer's real daemon (cleaned up on exit) rather than being nested.
+- Bad: the dev-tree wheels are `0.0.0.dev0`, so their internal same-minor pins
+  can't be satisfied normally — `e2e.sh` installs the workspace wheels
+  `--no-deps` and their third-party deps separately, a list that must track the
+  pyproject `dependencies`.
 - Bad: fixtures publish under one bootstrapped namespace into a Gitea that
   persists for the whole run, so specs must use unique package identities to
   avoid cross-test collisions.

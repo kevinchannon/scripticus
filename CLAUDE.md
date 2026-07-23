@@ -117,10 +117,12 @@ publish's `authenticated_user`/`can_publish` ACL, no Gitea blob touched, 404
 on an unknown version; the client's `--undo` sends `false`),
 with the Gitea boundary isolated in `gitea.py` so tests fake it
 (the full-stack end-to-end suite is instead BATS-driven and lives in `tests/`
-— D55: `tests/run.sh` stands the whole registry bundle up from source via a
-`docker-compose.e2e.yml` overlay and drives the real client through the
-README's lifecycle inside a container, run by `.github/workflows/e2e.yml`).
-The server has
+— D55: the Tasktree `e2e-test` task builds the client wheels and runs
+`tests/e2e.sh` in a containerised docker-out-of-docker runner, which stands the
+whole registry bundle up from source via a `docker-compose.e2e.yml` overlay,
+joins its network, and drives the real client through the README's lifecycle;
+`tt build`/`unit-test` round out the task graph, run by
+`.github/workflows/e2e.yml`). The server has
 no Typer CLI — `scripticus-svr` (`main.py`, argparse for
 `--host`/`--port`) prints a version/address banner and runs uvicorn, and
 the OpenAPI spec is served at `/openapi.json` rather than committed to

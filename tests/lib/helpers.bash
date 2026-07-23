@@ -1,14 +1,15 @@
 # Shared setup for the Scripticus e2e BATS suite. Every test drives the real
-# `scripticus` binary (pip-installed in the client image) against the live
-# registry bundle over the D45 front URL. See tests/README.md.
+# `scripticus` binary (installed from the built wheels by tests/e2e.sh) against
+# the live registry bundle over the D45 front URL. See tests/README.md.
 
 # Per-test client state: a fresh SCRIPTICUS_HOME (config, credentials, lockfile,
-# bin) and a writable working directory, since the repo is mounted read-only.
-# Isolation matters — each test starts with nothing installed and no remotes.
+# bin) and a scratch working directory off the repo tree, so tests never write
+# into it. Isolation matters — each test starts with nothing installed and no
+# remotes. The SCRIPTICUS_E2E_* env is exported by tests/e2e.sh.
 common_setup() {
-    : "${SCRIPTICUS_E2E_URL:?should be set by tests/docker-compose.e2e.yml}"
-    : "${SCRIPTICUS_E2E_TOKEN:?should be injected by tests/run.sh}"
-    : "${SCRIPTICUS_E2E_NAMESPACE:?should be injected by tests/run.sh}"
+    : "${SCRIPTICUS_E2E_URL:?should be exported by tests/e2e.sh}"
+    : "${SCRIPTICUS_E2E_TOKEN:?should be exported by tests/e2e.sh}"
+    : "${SCRIPTICUS_E2E_NAMESPACE:?should be exported by tests/e2e.sh}"
 
     export SCRIPTICUS_HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$SCRIPTICUS_HOME"
@@ -36,7 +37,7 @@ do_login() {
 
 # Scaffold a bash package, stamp a version into its manifest, pack it, and
 # publish every produced archive. Publish auth comes from SCRIPTICUS_TOKEN,
-# which the client image inherits from SCRIPTICUS_E2E_TOKEN (set below).
+# set inline from the bootstrapped SCRIPTICUS_E2E_TOKEN.
 # Usage: author_and_publish <name> <version>
 author_and_publish() {
     local name="$1" version="$2"

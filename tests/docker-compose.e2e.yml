@@ -2,49 +2,31 @@
 #
 #   docker compose -f docker-compose.yml -f tests/docker-compose.e2e.yml ...
 #
+# (tests/e2e.sh does exactly this from inside the Tasktree e2e runner.)
+#
 # The overlay does two things the shipped compose deliberately does not:
 #
 #  * builds `index` from server/Dockerfile instead of pulling the published
-#    image — so an e2e run validates the Dockerfile still builds, and tests
-#    the working tree rather than the last release. (The shipped compose stays
+#    image — so an e2e run validates the Dockerfile still builds, and tests the
+#    working tree rather than the last release. (The shipped compose stays
 #    pull-based on purpose: the README ships it as a one-command, source-free
 #    standup — `curl -LO docker-compose.yml` — so it must not require a build
 #    context.)
 #
-#  * adds the `client-test` service: a real `scripticus` client + BATS that
-#    joins the same network and reaches the registry at http://proxy by
-#    service name (D45's single front URL, exactly as a real client would).
+#  * `!reset`s the host port mappings, so the stack is fully internal. The e2e
+#    runner reaches it by service name after joining the stack network (DooD),
+#    and nothing collides with a dev stack already bound to :3000/:8000.
 #
-# The client-test service is not started by `up`; it is invoked on demand with
-# `docker compose run --rm client-test`, which is what tests/run.sh does.
+# There is no client service here: under the Tasktree DooD model the runner
+# *is* the client (it installs the wheels and runs BATS itself), so the bundle
+# is only the server side.
 services:
   index:
     build:
       context: .
       dockerfile: server/Dockerfile
 
-  # The e2e stack is fully internal: nothing is published to host ports, so a
-  # run never collides with a dev stack (or anything else) already bound to
-  # :3000/:8000. Health checks and Gitea bootstrap happen inside this network
-  # via the client-test image as a toolbox (tests/run.sh), not from the host.
   gitea:
     ports: !reset []
   proxy:
     ports: !reset []
-
-  client-test:
-    build:
-      context: .
-      dockerfile: tests/Dockerfile.client
-    depends_on:
-      - proxy
-      - index
-    environment:
-      # The single front URL a client points at (proxy -> index/gitea, D45).
-      SCRIPTICUS_E2E_URL: http://proxy
-      # The publish token and namespace are injected by tests/run.sh from the
-      # Gitea bootstrap (SCRIPTICUS_E2E_TOKEN / SCRIPTICUS_E2E_NAMESPACE).
-    volumes:
-      # The whole repo, read-only: gives tests the bats files and fixtures.
-      # Client state lives at SCRIPTICUS_HOME (/state, writable) off this mount.
-      - ./:/repo:ro

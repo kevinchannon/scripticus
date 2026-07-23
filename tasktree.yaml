@@ -14,7 +14,60 @@
 # (common -> schema -> server/client), waiting after each tier for the release
 # workflow to go green and the package(s) to appear on PyPI before the next.
 
+runners:
+  # The e2e suite runs in a containerised runner over the host Docker daemon
+  # (docker-out-of-docker): the socket is mounted in, tests/e2e.sh `compose up`s
+  # the registry bundle as sibling containers, and BATS drives the client. The
+  # repo (including dist/ from the `build` task) is auto-mounted; run_as_root so
+  # the process can reach the socket and pip-install the client. See
+  # tests/e2e-tests.dockerfile and doc/DECISIONS.md D55.
+  e2e:
+    type: containerised
+    engine: docker
+    dockerfile: tests/e2e-tests.dockerfile
+    run_as_root: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
 tasks:
+  build:
+    desc: Build the workspace wheels into dist/.
+    # Content-scoped caching: rebuild the wheels only when the packaged source,
+    # a pyproject, or the lockfile changes — not on every unrelated repo edit.
+    inputs:
+      - common/src/**
+      - schema/src/**
+      - client/src/**
+      - "*/pyproject.toml"
+      - uv.lock
+    outputs:
+      - dist/*.whl
+    cmd: |
+      set -euo pipefail
+      uv build --package scripticus-common --wheel --out-dir dist
+      uv build --package scripticus-schema --wheel --out-dir dist
+      uv build --package scripticus        --wheel --out-dir dist
+
+  unit-test:
+    desc: Run the pytest suite (client, server, schema, common).
+    # Deliberately independent of `build`: pytest runs against the editable uv
+    # workspace, not the built wheels.
+    inputs:
+      - common/src/**
+      - schema/src/**
+      - client/src/**
+      - "*/pyproject.toml"
+      - uv.lock
+    cmd: uv run pytest
+
+  e2e-test:
+    desc: >-
+      Full-stack end-to-end tests — stand the registry bundle up from source and
+      drive the real client through the README's lifecycle with BATS.
+    deps: [build]
+    runner: e2e
+    cmd: tests/e2e.sh
+
   versions:
     desc: Show the latest released version of each workspace package (from git tags).
     cmd: |

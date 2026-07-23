@@ -1,10 +1,10 @@
 name: E2E (BATS against the full stack)
 
-# Stands up the whole registry bundle from source (proxy + index + Gitea) via
-# the docker-compose e2e overlay, then drives the real `scripticus` client
-# through the README's lifecycle from inside a container on the same network.
-# All the orchestration lives in tests/run.sh — this job just invokes it, so
-# the suite runs identically here and on a developer's machine.
+# Drives the real scripticus client through the README's lifecycle against a
+# registry bundle built from source. Orchestrated by Tasktree: `tt e2e-test`
+# builds the client wheels (the `build` task) and runs tests/e2e.sh inside a
+# containerised runner that stands the bundle up on the host Docker daemon
+# (docker-out-of-docker) and reaches it by service name. Same command locally.
 on:
   push:
     branches: [ main, develop ]
@@ -18,7 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # ubuntu-latest ships docker + the compose plugin, python3 and curl,
-      # which is everything tests/run.sh needs.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      # ubuntu-latest ships Docker (with the compose plugin) and the daemon
+      # socket, which is all the DooD runner needs.
+      - name: Install Tasktree
+        run: pipx install tasktree
+
       - name: Run the e2e suite
-        run: tests/run.sh
+        run: tt e2e-test
