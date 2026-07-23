@@ -33,32 +33,37 @@ The design documents live in [doc/](doc/): [vision](doc/VISION.md),
 
 ## Developing
 
+Install the development prerequisites (uv, Tasktree, Docker, gh) once, then ask
+[Tasktree](https://github.com/kevinchannon/tasktree) what you can do:
+
+```console
+$ scripts/dev-setup                   # first-time setup (Linux/Bash; see below)
+$ tt --list                           # every task: build, unit-test, e2e-test, release, …
+```
+
+Day to day, `tt build` builds the workspace wheels, `tt unit-test` runs the
+pytest suite, and `tt e2e-test` stands the whole registry bundle up from source
+in Docker and drives the real client against it (see
+[tests/README.md](tests/README.md)); `tt release …` cuts releases to PyPI.
+
 The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
 with four members: `client/` and `server/` (the CLI and index service), and
 two shared packages they both build on — `schema/` (the declarative wire and
 manifest models) and `common/` (pure helpers both sides compute identically:
-hashing, versioning, identity globbing). All commands run from the repository
-root:
+hashing, versioning, identity globbing). They share a single lockfile
+(`uv.lock`) and virtual environment, so uv works directly too — all from the
+repository root:
 
 ```console
 $ uv sync                             # create/update the workspace environment
 $ uv run pytest                       # run all tests (all members)
 $ uv run scripticus -v                # run the client CLI
 $ uv run scripticus-svr               # start the index service (Ctrl-C to stop)
-$ uv build --package scripticus      # build the client wheel/sdist into dist/
-$ uv build --package scripticus-server
 ```
 
-All members share a single lockfile (`uv.lock`) and virtual environment.
-
-The full-stack end-to-end tests are separate — orchestrated by
-[Tasktree](https://github.com/kevinchannon/tasktree), they stand the whole
-registry bundle up from source in Docker and drive the real client against it
-(see [tests/README.md](tests/README.md)):
-
-```console
-$ tt e2e-test                         # build wheels, stand up, test, tear down
-```
+`scripts/dev-setup` targets Linux/Bash with apt (where it installs everything);
+on macOS or Git-Bash it still runs, installing what it can and pointing you at
+your platform's package manager for the rest.
 
 ## Licence
 

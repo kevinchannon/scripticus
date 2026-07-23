@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Install development prerequisites for the scripticus workspace.
+#
+# Managed tools:
+#   uv       — Python package/workspace manager (build, sync, run, pytest)
+#   tt       — Tasktree task runner (build / unit-test / e2e-test / release)
+#   docker   — Docker Engine + compose plugin (the end-to-end suite stands the
+#              registry bundle up and runs in a docker-out-of-docker runner)
+#   gh       — GitHub CLI (required by `tt release`)
+#
+# This MUST be a script (not a `tt` task): it installs Tasktree itself. Run it
+# once before using the repo for the first time.
+#
+# Targeted at Linux/Bash with apt (Debian/Ubuntu), where it does the most. It
+# still runs elsewhere — macOS, Git-Bash/MinGW — degrading to "check and advise"
+# for the bits that are platform-specific rather than failing.
+
+set -euo pipefail
+
+BOLD=$'\e[1m'; GREEN=$'\e[0;32m'; YELLOW=$'\e[1;33m'; NC=$'\e[0m'
+info() { printf '%s▶ %s%s\n' "$GREEN"  "$*" "$NC"; }
+warn() { printf '%s⚠  %s%s\n' "$YELLOW" "$*" "$NC"; }
+step() { printf '\n%s── %s%s\n' "$BOLD" "$*" "$NC"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+UNAME="$(uname -s)"
+HAS_APT=0; have apt-get && HAS_APT=1
+
+# ── System prerequisites ──────────────────────────────────────────────────────
+# The bootstrap basics: pipx (installs tt), curl (installs uv/docker), git, and
+# the python bits pipx needs. On apt we install what's missing; elsewhere we
+# just flag anything absent and press on.
+step "System prerequisites"
+if [[ $HAS_APT -eq 1 ]]; then
+    PKGS=()
+    for pkg in pipx git curl ca-certificates python3 python3-venv; do
+        dpkg -s "$pkg" >/dev/null 2>&1 || PKGS+=("$pkg")
+    done
+    if [[ ${#PKGS[@]} -gt 0 ]]; then
+        info "Installing missing packages: ${PKGS[*]}"
+        sudo apt-get update -qq
+        sudo apt-get install -y "${PKGS[@]}"
+    else
+        info "All system prerequisites already installed"
+    fi
+else
+    info "No apt detected ($UNAME) — checking for the basics instead"
+    for tool in pipx git curl; do
+        have "$tool" && info "found $tool" \
+            || warn "missing $tool — install it with your platform's package manager (e.g. Homebrew: brew install $tool)"
+    done
+fi
+# Make pipx- and uv-installed tools (~/.local/bin) reachable on PATH.
+have pipx && { pipx ensurepath >/dev/null 2>&1 || true; }
+
+# ── uv ────────────────────────────────────────────────────────────────────────
+step "uv (Python package/workspace manager)"
+if have uv; then
+    info "uv already installed: $(uv --version)"
+elif have curl; then
+    info "Installing uv (astral.sh installer — supports Linux and macOS)..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    info "uv installed (restart your shell or re-source your profile to pick it up)"
+else
+    warn "curl not available — install uv manually: https://docs.astral.sh/uv/getting-started/installation/"
+fi
+
+# ── tt (Tasktree) ─────────────────────────────────────────────────────────────
+step "tt (Tasktree)"
+if have tt; then
+    info "Tasktree already installed: $(tt --version)"
+elif have pipx; then
+    info "Installing Tasktree..."
+    pipx install tasktree
+    info "Tasktree installed: $(tt --version 2>/dev/null || echo '(restart your shell to use tt)')"
+else
+    warn "pipx not available — install it, then run: pipx install tasktree"
+fi
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+step "Docker (engine + compose plugin)"
+if have docker; then
+    info "Docker already installed: $(docker --version)"
+elif [[ $HAS_APT -eq 1 ]]; then
+    info "Installing Docker via the official get.docker.com script..."
+    curl -fsSL https://get.docker.com | sudo sh
+else
+    warn "Docker not found and no apt to install it here ($UNAME)."
+    warn "Install it manually — Docker Desktop on macOS/Windows, or your distro's package."
+fi
+
+if have docker && docker compose version >/dev/null 2>&1; then
+    info "Docker Compose plugin present: $(docker compose version | head -1)"
+elif have docker; then
+    warn "Docker Compose plugin missing — the e2e suite needs it (Debian/Ubuntu: sudo apt-get install -y docker-compose-plugin)."
+fi
+
+# Socket access without sudo is a Linux group thing; skip it elsewhere.
+if [[ "$UNAME" == "Linux" ]] && have docker; then
+    if groups | grep -qw docker; then
+        info "User already in the 'docker' group"
+    else
+        info "Adding ${USER} to the 'docker' group (for socket access without sudo)..."
+        sudo usermod -aG docker "${USER}"
+        warn "Group change takes effect on next login — re-login or run: newgrp docker"
+    fi
+fi
+
+# ── gh (GitHub CLI) ───────────────────────────────────────────────────────────
+# Only needed to cut releases (`tt release` preflights git/gh/uv/curl), but it
+# belongs in a full dev environment.
+step "GitHub CLI (gh)"
+if have gh; then
+    info "gh already installed: $(gh --version | head -1)"
+elif [[ $HAS_APT -eq 1 ]]; then
+    info "Installing gh from GitHub's apt repository..."
+    sudo mkdir -p -m 755 /etc/apt/keyrings
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+    sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+    sudo apt-get update -qq
+    sudo apt-get install -y gh
+    warn "Authenticate before releasing: gh auth login"
+else
+    warn "gh not found and no apt here ($UNAME) — install it (e.g. brew install gh), then: gh auth login"
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+printf '\n%s━━  Ready  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n' "$BOLD" "$NC"
+printf '  See every task:  tt --list\n'
+printf '  Sync env:        uv sync\n'
+printf '  Unit tests:      tt unit-test        (or: uv run pytest)\n'
+printf '  Build:           tt build            (workspace wheels -> dist/)\n'
+printf '  E2E tests:       tt e2e-test         (needs a running Docker daemon)\n'
+printf '  Run client:      uv run scripticus -v\n'
+printf '  Release:         tt release ...      (needs: gh auth login)\n'
+printf '%s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n' "$BOLD" "$NC"
+printf '  If tools appear "not found", restart your shell so ~/.local/bin is on PATH.\n'
