@@ -25,7 +25,10 @@ uninstall, D44). The last write-path command has also landed: `yank
 `yanked` flag (read-side already enforced everywhere) via a `PATCH` on the
 version, owner-authed with publish's live Gitea ACL and touching no blob;
 `yank --undo` reverses it with no time window, since yank deletes nothing.
-`config install` remains. The repo is a **uv workspace**
+The `config` command group (`config remote add/list/remove`, `config tools
+--install/--escalate`) remains — D56 replaced the planned git-pull `config
+install` (D12) with explicit `config.toml` setters. The repo is a **uv
+workspace**
 (Cargo-style) with four members: `client/` (PyPI package `scripticus`,
 the CLI), `server/` (PyPI package `scripticus-server`, the FastAPI index
 service fronting Gitea, providing the `scripticus-svr` command),
@@ -131,7 +134,8 @@ command (`tools.py`, D44 — the `[tools] install`/`escalate` config, PATH
 presence check, `{packages}` substitution, platform-shell run; refuses when
 a required tool is missing and no installer is configured, with a
 `--skip-tools` escape). With `search` and `yank` in, every v1 client command
-is implemented; only the post-v1 `config install` remains. A
+is implemented; only the post-v1 `config` command group remains (D56 —
+`config remote`/`config tools`, replacing the planned `config install`). A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
 registry bundle: a Caddy reverse-proxy front (`proxy/Caddyfile`, D45)
 presenting one user-facing URL over the index service and Gitea. The design

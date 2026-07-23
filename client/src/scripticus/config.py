@@ -7,10 +7,10 @@ it is the bare-name namespace search path (D5) and `publish`'s default
 target (first entry, D35) — there is no separate ``default_remote``
 setting. It may also hold a ``[tools]`` table — an ``install`` command
 Scripticus shells out to for system-tool installation and an ``escalate``
-prefix for elevating just that command (D44). The file is
-org-distributable via ``scripticus config install`` (D12), which is why
-nothing token-shaped ever lives here (that is ``credentials.toml``'s job,
-D34).
+prefix for elevating just that command (D44). The file is managed by the
+``scripticus config`` command group (``config remote`` / ``config tools``,
+D56, superseding the git-pull ``config install`` of D12), and nothing
+token-shaped ever lives here (that is ``credentials.toml``'s job, D34).
 """
 
 import tomllib

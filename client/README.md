@@ -18,15 +18,17 @@ $ scripticus init            # creates ~/.scripticus, adds bin dir to PATH
 Restart your shell (or re-source your profile) so `~/.scripticus/bin` is on
 your PATH.
 
-If your organisation distributes a standard configuration, pull it in one
-step:
+Point the client at your organisation's registries. Your org's onboarding
+docs will give you the exact lines to run:
 
 ```console
-$ scripticus config install https://git.example.com/org/scripticus-config.git
+$ scripticus config remote add tools https://scripticus.example.com
+$ scripticus config tools --install="apt-get install -y {packages}" --escalate=sudo
 ```
 
-This installs the org's remotes and default namespace search path, so bare
-package names resolve the way your organisation expects.
+Remotes are searched in the order you add them, which is also the search path
+for bare package names — so add them the way your organisation expects them to
+resolve. `config remote list` shows the current set.
 
 ## Everyday usage
 

@@ -314,9 +314,10 @@ Everything lives under `~/.scripticus/`:
   (doubling as the bare-name namespace search path, D5) and `publish`'s
   default target, plus other defaults. Optionally a `[tools]` table — an
   `install` command Scripticus shells out to for system-tool installation
-  and an `escalate` prefix for elevating just that command (D44).
-  Distributable org-wide via `scripticus config install <git-url>`
-  (Conan-style). No Conan-style profiles.
+  and an `escalate` prefix for elevating just that command (D44). Managed
+  by the `config` command group — `config remote add/list/remove` and
+  `config tools --install/--escalate` (D56); orgs onboard by shipping those
+  commands rather than pulling a shared config repo. No Conan-style profiles.
 - **`credentials.toml`** — Gitea personal access tokens, one per remote,
   stored plaintext with 0600 permissions (cargo-style, D34), keyed by
   remote URL. Registered via `scripticus login <name>` (resolving an
@@ -385,7 +386,7 @@ package-manager logic (D44). Flow:
   platform shell (`bash -lc` / `cmd /c`) inheriting the process
   environment. The shell expands env vars, so proxies, mirrors, and
   credentials come from the machine environment and never sit in the
-  (org-distributable) config.
+  config (which an org may hand out openly as a `config tools` command line).
 
 ```toml
 [tools]

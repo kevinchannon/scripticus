@@ -145,7 +145,8 @@ docs in the client README):
 | `list [glob]`               | List installed + available packages, glob-filtered     | Implemented |
 | `update [<pkg>]`            | Update installed remote-provenance packages            | Implemented |
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
-| `config install <git-url>`  | Pull org-distributed client configuration              | Planned     |
+| `config remote add/list/remove` | Manage the configured remotes list                 | Planned     |
+| `config tools --install/--escalate` | Set the `[tools]` installer command            | Planned     |
 | `yank <ns/name>@<ver>`      | Hide a published version from search/latest (`--undo`) | Implemented |
 
 There is deliberately no `run` command: D38's three-tier shims make every
@@ -253,8 +254,11 @@ installed command directly invocable by its namespaced names instead.
       sections share one `fnmatch` primitive in `schema/` so they agree
       (D50). Complements `search`'s content match; gives Scripticus its first
       installed-listing.
-- [ ] `config install <git-url>` to roll out org-wide client configuration
-      (remotes, defaults) in one command (Conan-style).
+- [ ] `config` command group to manage `config.toml` directly: `config remote
+      add/list/remove` for the named remotes list and `config tools
+      --install/--escalate` for the `[tools]` installer (D44). Orgs onboard by
+      shipping these commands, not a config repo (D56, superseding the
+      Conan-style `config install <git-url>`).
 - [x] `new <lang> <pkg>`: scaffold directory + skeleton manifest, with
       language-appropriate entrypoint naming (e.g. `main.sh`, `main.py`,
       PascalCase for named PowerShell commands).
@@ -290,6 +294,10 @@ Not scheduled; recorded so v1 decisions do not preclude them.
       Credential Locker), replacing the plaintext `credentials.toml` at rest
       where a keyring is available, with the file kept as the headless/CI
       fallback (hardening on D34's storage model).
+- [ ] Explicit remote priority/reordering: let `config remote` express where a
+      newly added remote lands in the search-path order rather than v1's
+      append-only, remove-and-re-add-to-reorder (D56) — e.g. `add --first` or a
+      priority index.
 - [ ] Richer tool configuration (beyond v1's single `[tools] install`
       command, D44): an optional query/check command to verify a tool
       satisfies a version window rather than mere PATH presence, versioned

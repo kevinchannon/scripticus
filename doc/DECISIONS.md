@@ -240,6 +240,11 @@ conflict surfacing (D17) covers the safety side.
 
 ## D12. Org-distributable client config (`config install <git-url>`)
 
+> **Superseded by [D56](#d56-config-command-group-instead-of-config-install).**
+> The git-pull `config install` is dropped; `config.toml` is managed by
+> explicit `config remote` / `config tools` subcommands instead, and orgs
+> onboard by shipping those commands rather than a config repo.
+
 **Decision**: Adopt Conan's `config install` pattern for rolling out
 remotes/defaults org-wide from a shared repo.
 
@@ -817,8 +822,8 @@ regardless.
 - Good: D32 unchanged — the index service still holds no credentials.
 - Good: CI publishing works today via `SCRIPTICUS_TOKEN`, without
   designing scoped tokens.
-- Good: the file split makes leaking a token through `config install`
-  structurally impossible.
+- Good: the file split makes leaking a token through org-shared config
+  (`config remote`/`config tools`, D56) structurally impossible.
 - Bad: a plaintext token on disk; OS-keyring integration is possible
   later but not designed.
 - Bad: until verification lands, a mistyped token surfaces at first
@@ -853,9 +858,9 @@ authentication command from silently moving a remote.
   credentials (D34) survive remote renames.
 - Bad: the two-argument form does two jobs — a mild surprise, mitigated
   by documenting it plainly.
-- Bad: `login` appending to an org-distributed `config.toml` (D12) lets
-  local files drift from the baseline; `config install` remains the
-  reset.
+- Bad: `login` appending to a shared `config.toml` lets local files drift
+  from the org baseline; re-running the org's `config remote` commands (D56)
+  is the way back.
 
 ---
 
@@ -1721,3 +1726,38 @@ one-command standup for real operators; `!reset` host ports keep it hermetic.
 - Bad: fixtures publish under one bootstrapped namespace into a Gitea that
   persists for the whole run, so specs must use unique package identities to
   avoid cross-test collisions.
+
+---
+
+## D56. `config` command group instead of `config install`
+
+**Decision**: Drop the planned git-pull `config install <git-url>` (D12).
+Manage `config.toml` with an explicit `config` command group: `config remote
+add <name> <url>` / `list` / `remove <name>` for the named `[[remotes]]` list,
+and `config tools --install=… --escalate=…` for the `[tools]` table (D44).
+Orgs onboard by shipping these commands as copy-pasteable lines, not by hosting
+a config repo.
+
+**Reason**: D12's git-pull carried real cost — a config repo someone must own
+and secure, and worse, a `[tools] install` command run with `escalate` (D44)
+arriving over a URL — for a config that is realistically two or three remotes
+plus one tools line and rarely changes. Explicit setters cover the same ground
+with the git/cargo-familiar `remote` verb, give `[tools]` first-class CLI
+ergonomics instead of hand-edited TOML, and keep the root-privileged install
+command local-only.
+
+**Consequences**:
+- Good: onboarding stays copy-paste (a handful of `config …` lines), the CLI is
+  self-documenting (`config --help`), and `[tools]` gains a setter.
+- Good: closes the "root command delivered over a URL" surface — nothing token-
+  or privilege-shaped is ever fetched.
+- Good: the group writes only `remotes`/`tools`, so `save`'s refusal to
+  round-trip unknown top-level keys stays honest.
+- Bad: no automatic drift correction — an org changing a remote URL means users
+  re-run the command; shipped instructions can go stale where a re-runnable
+  config repo would not.
+- Bad: `login <name> <url>` still auto-registers a remote (D35), so there are
+  two add paths. Deliberate — `config remote add` is the no-token path, `login`
+  the add-and-authenticate shortcut — but a documented overlap.
+- Bad: `config remote add` appends (lowest priority); reordering means remove +
+  re-add until a priority flag earns its place.
