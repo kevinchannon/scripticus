@@ -1,31 +1,16 @@
-# E2E overlay over the shipped docker-compose.yml. Compose the two together:
+# E2E-only overlay: make the stack fully internal by dropping the base's host
+# port publishing. Layered on top of docker-compose.yml + the build overlay:
 #
-#   docker compose -f docker-compose.yml -f tests/docker-compose.e2e.yml ...
+#   -f docker-compose.yml -f tests/docker-compose.build.yml -f tests/docker-compose.e2e.yml
 #
-# (tests/e2e.sh does exactly this from inside the Tasktree e2e runner.)
+# (tests/e2e.sh, via scripts/start-server, composes exactly these three.)
 #
-# The overlay does two things the shipped compose deliberately does not:
-#
-#  * builds `index` from server/Dockerfile instead of pulling the published
-#    image — so an e2e run validates the Dockerfile still builds, and tests the
-#    working tree rather than the last release. (The shipped compose stays
-#    pull-based on purpose: the README ships it as a one-command, source-free
-#    standup — `curl -LO docker-compose.yml` — so it must not require a build
-#    context.)
-#
-#  * `!reset`s the host port mappings, so the stack is fully internal. The e2e
-#    runner reaches it by service name after joining the stack network (DooD),
-#    and nothing collides with a dev stack already bound to :3000/:8000.
-#
-# There is no client service here: under the Tasktree DooD model the runner
-# *is* the client (it installs the wheels and runs BATS itself), so the bundle
-# is only the server side.
+# With no host ports the e2e stack can't collide with a dev stack on
+# :3000/:8000; the DooD runner reaches it by service name after joining the
+# stack network. There is no client service — under DooD the runner *is* the
+# client (it installs the wheels and runs BATS itself), so the bundle is only
+# the server side.
 services:
-  index:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-
   gitea:
     ports: !reset []
   proxy:

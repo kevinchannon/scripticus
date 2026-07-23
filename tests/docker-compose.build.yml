@@ -1,0 +1,15 @@
+# Build the index from source instead of pulling the published image. Layered
+# over the shipped docker-compose.yml by anything that wants to run the working
+# tree rather than the last release — `scripts/start-server` (local dev) and the
+# e2e suite (which adds tests/docker-compose.e2e.yml on top). Kept separate from
+# the e2e overlay so `start-server` can build from source while keeping the
+# base's host ports; the e2e overlay `!reset`s those.
+#
+# The shipped compose stays pull-based on purpose (the README distributes it as
+# a source-free, one-command standup), so this build overlay lives here, not
+# there.
+services:
+  index:
+    build:
+      context: .
+      dockerfile: server/Dockerfile

@@ -20,19 +20,21 @@ the runner, `e2e.sh`:
    internal same-minor pins target PyPI releases that don't exist for this
    `0.0.0.dev0` tree, so the three workspace wheels go in `--no-deps` and their
    third-party deps follow).
-2. **Builds + starts** the registry bundle *from source* — the index from
-   [`server/Dockerfile`](../server/Dockerfile) — as sibling containers on the
-   host daemon. This is the shipped [`docker-compose.yml`](../docker-compose.yml)
-   **plus** the [`docker-compose.e2e.yml`](docker-compose.e2e.yml) overlay: the
-   shipped compose stays pull-based (the README distributes it as a source-free,
-   one-command standup), and the overlay switches `index` to a build and
-   `!reset`s the host ports so the stack is fully internal.
-3. **Joins the stack's network**, so it reaches services by name
-   (`http://proxy`, `http://gitea:3000`) — no host ports, no collision with a
-   dev stack on `:3000`/`:8000`.
-4. **Bootstraps** Gitea (a user + publish token — a namespace *is* a Gitea
-   user, so this must exist before any test runs).
-5. **Runs the BATS suite**, driving the client over the single front URL (D45).
+2. **Stands the bundle up + bootstraps a test user** via the shared
+   [`scripts/start-server`](../scripts/start-server) (the same script
+   `tt start-server` uses for a local dev instance), in e2e mode: build the
+   index *from source* ([`server/Dockerfile`](../server/Dockerfile)) as sibling
+   containers on the host daemon, **join the stack's network** so it reaches
+   services by name (`http://proxy`, `http://gitea:3000`), and create a Gitea
+   user + publish token (a namespace *is* a Gitea user, so it must exist before
+   any test runs). The compose stack is the shipped
+   [`docker-compose.yml`](../docker-compose.yml) **plus** the build overlay
+   [`docker-compose.build.yml`](docker-compose.build.yml) (index from source)
+   **plus** [`docker-compose.e2e.yml`](docker-compose.e2e.yml) (`!reset` the
+   host ports so it's fully internal — no collision with a dev stack on
+   `:3000`/`:8000`). The shipped compose stays pull-based; the overlays add the
+   source build and the port reset.
+3. **Runs the BATS suite**, driving the client over the single front URL (D45).
 
 The stack is torn down (and the runner disconnected) on exit. To leave it up
 for debugging:
@@ -48,12 +50,15 @@ CI runs the same `tt e2e-test` ([.github/workflows/e2e.yml](../.github/workflows
 
 | File | Role |
 | --- | --- |
-| `e2e.sh` | Runs inside the runner: install client → up bundle → join network → bootstrap → BATS → down. |
+| `e2e.sh` | Runs inside the runner: install client → (start-server: up + bootstrap) → BATS → down. |
 | `e2e-tests.dockerfile` | The runner toolchain image (docker CLI + compose, BATS, python) — no client baked in. |
-| `docker-compose.e2e.yml` | Overlay: builds `index` from source, `!reset`s host ports. |
+| `docker-compose.build.yml` | Overlay: build `index` from source (shared with `tt start-server`). |
+| `docker-compose.e2e.yml` | Overlay: `!reset` host ports so the e2e stack is fully internal. |
 | `lib/helpers.bash` | Per-test setup (isolated `SCRIPTICUS_HOME`), login and publish helpers. |
 | `*.bats` | The specs. |
 
+The bundle stand-up + test-user bootstrap lives in
+[`scripts/start-server`](../scripts/start-server), shared with `tt start-server`.
 The `build`, `unit-test`, and `e2e-test` tasks (and the `e2e` runner) are
 defined in the repo-root [tasktree.yaml](../tasktree.yaml).
 

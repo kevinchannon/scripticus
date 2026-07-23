@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Stand up a local scripticus registry bundle (proxy + index + Gitea) from
+# source, with a test user + publish token already in it. Used two ways:
+#
+#   * `tt start-server` — a local instance to hack the client against. Host
+#     ports are published (reach it at http://localhost:8000) and the stack is
+#     left running; the summary shows how to point the client at it.
+#   * tests/e2e.sh — the same stand-up + bootstrap, inside the DooD e2e runner
+#     (no host ports; the runner joins the stack network and reaches it by
+#     service name). e2e.sh reads the token back and runs the specs on top.
+#
+# Behaviour is driven by SC_* environment variables; the defaults suit
+# `tt start-server`. It brings the stack up and bootstraps it but never tears it
+# down — that is the caller's choice (left running for dev; e2e.sh cleans up).
+set -euo pipefail
+
+PROJECT="${SC_PROJECT:-scripticus-dev}"
+# Compose files: base + build-from-source overlay by default, which keeps the
+# base's host ports so a host client can reach the stack. e2e adds its own
+# no-host-ports overlay via SC_COMPOSE_FILES.
+COMPOSE_FILES="${SC_COMPOSE_FILES:--f docker-compose.yml -f tests/docker-compose.build.yml}"
+GITEA_URL="${SC_GITEA_URL:-http://localhost:3000}"   # where to reach Gitea to bootstrap
+FRONT_URL="${SC_FRONT_URL:-http://localhost:8000}"   # the client-facing front (proxy, D45)
+NAMESPACE="${SC_NAMESPACE:-scripticus-dev}"          # the test user == a namespace (D4)
+PASSWORD="${SC_PASSWORD:-dev-password-1}"
+JOIN_NETWORK="${SC_JOIN_NETWORK:-}"                  # if set, attach the current container (DooD)
+TOKEN_FILE="${SC_TOKEN_FILE:-}"                      # if set, write the token here for the caller
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+# shellcheck disable=SC2206  # deliberate word-split: SC_COMPOSE_FILES is a flag list
+COMPOSE=(docker compose -p "$PROJECT" $COMPOSE_FILES)
+
+BOLD=$'\e[1m'; GREEN=$'\e[0;32m'; NC=$'\e[0m'
+# Logs go to stderr so stdout stays free for machine use if a caller wants it.
+info() { printf '%s▶ %s%s\n' "$GREEN" "$*" "$NC" >&2; }
+
+wait_for() {
+    local url="$1" attempts="${2:-60}"
+    info "waiting for $url"
+    for _ in $(seq 1 "$attempts"); do
+        if curl -sf "$url" >/dev/null 2>&1; then return 0; fi
+        sleep 2
+    done
+    echo "error: not healthy at $url" >&2
+    "${COMPOSE[@]}" logs >&2 || true
+    return 1
+}
+
+info "building + starting the registry bundle from source (project: $PROJECT)"
+"${COMPOSE[@]}" build
+"${COMPOSE[@]}" up -d gitea index proxy
+
+if [[ -n "$JOIN_NETWORK" ]]; then
+    info "joining the stack network ($JOIN_NETWORK)"
+    docker network connect "$JOIN_NETWORK" "$(hostname)" 2>/dev/null || true
+fi
+
+wait_for "$GITEA_URL/api/healthz"
+
+# A brand-new Gitea has no users and no token, and a namespace *is* a Gitea user
+# (D2/D4), so provision one. `user create` is not idempotent — on a stack that's
+# already up, the user exists, which is fine.
+info "ensuring test user '$NAMESPACE' exists"
+"${COMPOSE[@]}" exec -T -u git gitea \
+    gitea admin user create \
+    --username "$NAMESPACE" --password "$PASSWORD" \
+    --email "$NAMESPACE@example.invalid" --must-change-password=false \
+    >/dev/null 2>&1 \
+    || info "user '$NAMESPACE' already present"
+
+# write:package to publish, read:user so `login` can verify via /whoami
+# (D40/D41). A unique token name keeps re-runs against a live stack from
+# colliding on the name.
+info "minting a publish token"
+TOKEN=$(curl -sf -u "$NAMESPACE:$PASSWORD" \
+    -X POST -H 'Content-Type: application/json' \
+    -d "{\"name\":\"scripticus-$(date +%s)\",\"scopes\":[\"write:package\",\"read:user\"]}" \
+    "$GITEA_URL/api/v1/users/$NAMESPACE/tokens" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha1"])')
+
+wait_for "$FRONT_URL/health"
+
+[[ -n "$TOKEN_FILE" ]] && printf '%s' "$TOKEN" > "$TOKEN_FILE"
+
+# Human summary (stdout) — the useful bit for `tt start-server`.
+cat <<EOF
+${BOLD}━━  Registry running  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}
+  Front URL:  ${FRONT_URL}
+  Namespace:  ${NAMESPACE}
+  User/pass:  ${NAMESPACE} / ${PASSWORD}
+  Token:      ${TOKEN}
+
+  Point the client at it (paste the token when prompted):
+    uv run scripticus login origin ${FRONT_URL}
+
+  Stop it:
+    docker compose -p ${PROJECT} ${COMPOSE_FILES} down -v
+${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}
+EOF

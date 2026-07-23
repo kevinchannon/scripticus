@@ -30,6 +30,10 @@ runners:
       - /var/run/docker.sock:/var/run/docker.sock
 
 tasks:
+  update-uv-deps:
+    desc: Sync the workspace virtual environment from the lockfile (uv sync).
+    cmd: uv sync
+
   build:
     desc: Build the workspace wheels into dist/.
     # Content-scoped caching: rebuild the wheels only when the packaged source,
@@ -66,7 +70,30 @@ tasks:
       drive the real client through the README's lifecycle with BATS.
     deps: [build]
     runner: e2e
+    # Source freshness is inherited via `build`; these add the test harness, so
+    # editing a spec or the stand-up plumbing re-runs the suite (an unchanged
+    # tree still skips).
+    inputs:
+      - tests/*.bats
+      - tests/lib/**
+      - tests/e2e.sh
+      - tests/e2e-tests.dockerfile
+      - tests/docker-compose.*.yml
+      - scripts/start-server
+      - server/Dockerfile
+      - docker-compose.yml
     cmd: tests/e2e.sh
+
+  start-server:
+    desc: >-
+      Stand up a local registry bundle (proxy + index + Gitea) from source, with
+      a test user + token, and leave it running to hack the client against.
+    cmd: scripts/start-server
+
+  test:
+    desc: Run all tests
+    deps: [ unit-test, e2e-test ]
+    cmd: echo "All tests complete"
 
   versions:
     desc: Show the latest released version of each workspace package (from git tags).
