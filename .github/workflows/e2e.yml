@@ -8,8 +8,19 @@ name: E2E (BATS against the full stack)
 on:
   push:
     branches: [ main, develop ]
+    # Doc-only changes can't affect the suite. NOTE: if this job is a required
+    # status check, a docs-only PR will show it as skipped — configure branch
+    # protection accordingly (or drop these filters).
+    paths-ignore: [ '**.md', 'doc/**', 'LICENSE' ]
   pull_request:
     branches: [ main, develop ]
+    paths-ignore: [ '**.md', 'doc/**', 'LICENSE' ]
+
+# Cancel an in-progress run when a newer commit lands on the same ref, so rapid
+# pushes don't pile up parallel e2e runs (each is a full stack standup).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # Pinned so CI runs the same Tasktree that's validated locally, rather than
@@ -31,6 +42,31 @@ jobs:
 
       - name: Install Tasktree
         run: pipx install "tasktree==${{ env.TASKTREE_VERSION }}"
+
+      # The base images are stable across runs; cache them so they're loaded
+      # from a tarball instead of re-pulled every time (the largest fixed cost).
+      # tt builds on the default docker builder, so its layer cache can't be
+      # persisted here — but the base pulls can.
+      - name: Cache base Docker images
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/e2e-base-images
+          key: e2e-base-images-${{ hashFiles('.github/e2e-base-images.txt') }}
+
+      - name: Load or pull base images
+        run: |
+          set -euo pipefail
+          tar="$HOME/.cache/e2e-base-images/images.tar"
+          mapfile -t images < <(grep -vE '^\s*(#|$)' .github/e2e-base-images.txt)
+          if [[ -f "$tar" ]]; then
+            echo "Loading cached base images ($(du -h "$tar" | cut -f1))"
+            docker load -i "$tar"
+          else
+            echo "Pulling base images"
+            for img in "${images[@]}"; do docker pull "$img"; done
+            mkdir -p "$(dirname "$tar")"
+            docker save "${images[@]}" -o "$tar"
+          fi
 
       - name: Run the e2e suite
         run: tt e2e-test

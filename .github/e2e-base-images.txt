@@ -1,0 +1,13 @@
+# Base images the e2e stack pulls each run — cached between CI runs so they are
+# loaded from a tarball instead of re-pulled (see .github/workflows/e2e.yml).
+# The cache key is a hash of this file, so editing the list refreshes the cache.
+# One image ref per line; blank lines and # comments are ignored.
+#
+# Runner image (tests/e2e-tests.dockerfile):
+docker:27-cli
+python:3.12-slim
+# Index image build (server/Dockerfile):
+ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# Bundle runtime (docker-compose.yml):
+gitea/gitea:1.24
+caddy:2-alpine

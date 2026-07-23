@@ -3,8 +3,19 @@ name: Tests
 on:
   push:
     branches: [ main, develop ]
+    # Doc-only changes don't affect the tests. NOTE: if these jobs are required
+    # status checks, a docs-only PR will show them skipped — configure branch
+    # protection accordingly (or drop these filters).
+    paths-ignore: [ '**.md', 'doc/**', 'LICENSE' ]
   pull_request:
     branches: [ main, develop ]
+    paths-ignore: [ '**.md', 'doc/**', 'LICENSE' ]
+
+# Cancel superseded in-progress runs on the same ref so rapid pushes don't burn
+# minutes on a full 9-cell matrix that's already stale.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # Pinned so CI runs the same Tasktree that's validated locally, rather than
