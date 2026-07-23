@@ -145,8 +145,8 @@ docs in the client README):
 | `list [glob]`               | List installed + available packages, glob-filtered     | Implemented |
 | `update [<pkg>]`            | Update installed remote-provenance packages            | Implemented |
 | `init`                      | Post-install bootstrap: PATH entry + state skeleton    | Implemented |
-| `config remote add/list/remove` | Manage the configured remotes list                 | Planned     |
-| `config tools --install/--escalate` | Set the `[tools]` installer command            | Planned     |
+| `config remote add/list/remove` | Manage the configured remotes list                 | Implemented |
+| `config tools --install/--escalate` | Set the `[tools]` installer command            | Implemented |
 | `yank <ns/name>@<ver>`      | Hide a published version from search/latest (`--undo`) | Implemented |
 
 There is deliberately no `run` command: D38's three-tier shims make every
@@ -254,7 +254,7 @@ installed command directly invocable by its namespaced names instead.
       sections share one `fnmatch` primitive in `schema/` so they agree
       (D50). Complements `search`'s content match; gives Scripticus its first
       installed-listing.
-- [ ] `config` command group to manage `config.toml` directly: `config remote
+- [x] `config` command group to manage `config.toml` directly: `config remote
       add/list/remove` for the named remotes list and `config tools
       --install/--escalate` for the `[tools]` installer (D44). Orgs onboard by
       shipping these commands, not a config repo (D56, superseding the

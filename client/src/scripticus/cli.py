@@ -11,11 +11,15 @@ from rich.table import Table
 from scripticus import __version__, scaffold
 from scripticus.config import (
     ConfigError,
+    Remote,
     Tools,
+    add_remote,
     find_remote,
     load_remotes,
     load_tools,
+    remove_remote,
     save_remotes,
+    save_tools,
 )
 from scripticus.credentials import CredentialsError, resolve_token, set_token
 from scripticus.init import ensure_persistent_path, ensure_skeleton, on_path
@@ -1068,3 +1072,116 @@ def use(
         f"'{shim}' now points at [bold]{candidate.package_id}[/bold]"
         f" {candidate.version}{was}"
     )
+
+
+# --- config: manage ~/.scripticus/config.toml (D56) ------------------------
+
+config_app = typer.Typer(
+    no_args_is_help=True,
+    help="Manage ~/.scripticus/config.toml: remotes and the tools installer.",
+)
+remote_app = typer.Typer(
+    no_args_is_help=True,
+    help="Add, list, and remove the configured remotes.",
+)
+config_app.add_typer(remote_app, name="remote")
+app.add_typer(config_app, name="config")
+
+
+def _print_remotes(remotes: "list[Remote]") -> None:
+    if not remotes:
+        console.print("No remotes configured.")
+        return
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#")
+    table.add_column("Name")
+    table.add_column("URL")
+    for priority, remote in enumerate(remotes, start=1):
+        table.add_row(str(priority), remote.name, escape(remote.url))
+    console.print(table)
+
+
+def _print_tools(tools: Tools) -> None:
+    for label, value in (("install", tools.install), ("escalate", tools.escalate)):
+        shown = escape(value) if value else "[dim](not set)[/dim]"
+        console.print(f"  {label + ':':10}{shown}")
+
+
+@remote_app.command("add")
+def config_remote_add(
+    name: str = typer.Argument(..., help="Short name for the remote."),
+    url: str = typer.Argument(..., help="The remote's base URL."),
+) -> None:
+    """Register a remote at lowest search priority (no token; use `login` for that)."""
+    home = scripticus_home()
+    try:
+        remotes = load_remotes(home)
+        updated = add_remote(remotes, name, url)
+        if updated == remotes:
+            console.print(
+                f"Remote '{name}' is already configured ({url}) — nothing to do."
+            )
+            return
+        save_remotes(home, updated)
+    except ConfigError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+    console.print(
+        f"Added remote [bold]{name}[/bold] ({escape(url)}) at lowest search priority."
+    )
+
+
+@remote_app.command("list")
+def config_remote_list() -> None:
+    """List the configured remotes in priority (search-path) order."""
+    home = scripticus_home()
+    try:
+        remotes = load_remotes(home)
+    except ConfigError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+    _print_remotes(remotes)
+
+
+@remote_app.command("remove")
+def config_remote_remove(
+    name: str = typer.Argument(..., help="Name of the remote to remove."),
+) -> None:
+    """Remove a remote from config.toml (its stored token, if any, is left alone)."""
+    home = scripticus_home()
+    try:
+        remotes = load_remotes(home)
+        save_remotes(home, remove_remote(remotes, name))
+    except ConfigError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+    console.print(f"Removed remote [bold]{name}[/bold].")
+
+
+@config_app.command("tools")
+def config_tools(
+    install: Optional[str] = typer.Option(
+        None,
+        "--install",
+        help="Set the system-tool install command (empty string clears it),"
+        ' e.g. --install="apt-get install -y {packages}".',
+    ),
+    escalate: Optional[str] = typer.Option(
+        None,
+        "--escalate",
+        help='Set the elevation prefix for the install command (empty string'
+        ' clears it), e.g. --escalate=sudo.',
+    ),
+) -> None:
+    """Show or set the system-tool installer command (the tools table, D44)."""
+    home = scripticus_home()
+    try:
+        if install is None and escalate is None:
+            _print_tools(load_tools(home))
+            return
+        tools = save_tools(home, install, escalate)
+    except ConfigError as exc:
+        console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+    console.print("Updated \\[tools]:")
+    _print_tools(tools)

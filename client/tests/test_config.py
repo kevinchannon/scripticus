@@ -6,11 +6,14 @@ from scripticus.config import (
     ConfigError,
     Remote,
     Tools,
+    add_remote,
     default_remote,
     find_remote,
     load_remotes,
     load_tools,
+    remove_remote,
     save_remotes,
+    save_tools,
 )
 
 
@@ -141,4 +144,72 @@ def test_save_remotes_still_refuses_other_unknown_settings(home):
     before = (home / "config.toml").read_text()
     with pytest.raises(ConfigError, match="future_setting"):
         save_remotes(home, [Remote(name="b", url="https://b")])
+    assert (home / "config.toml").read_text() == before
+
+
+# --- add_remote / remove_remote (D56) --------------------------------------
+
+
+def test_add_remote_appends_at_lowest_priority():
+    remotes = [Remote(name="origin", url="https://a")]
+    updated = add_remote(remotes, "public", "https://b")
+    assert updated == [
+        Remote(name="origin", url="https://a"),
+        Remote(name="public", url="https://b"),
+    ]
+
+
+def test_add_remote_same_name_same_url_is_idempotent():
+    remotes = [Remote(name="origin", url="https://a")]
+    assert add_remote(remotes, "origin", "https://a") == remotes
+
+
+def test_add_remote_same_name_different_url_is_refused():
+    remotes = [Remote(name="origin", url="https://a")]
+    with pytest.raises(ConfigError, match="already exists with a different URL"):
+        add_remote(remotes, "origin", "https://elsewhere")
+
+
+def test_remove_remote_drops_by_name():
+    remotes = [Remote(name="origin", url="https://a"), Remote(name="public", url="https://b")]
+    assert remove_remote(remotes, "origin") == [Remote(name="public", url="https://b")]
+
+
+def test_remove_unknown_remote_is_refused():
+    remotes = [Remote(name="origin", url="https://a")]
+    with pytest.raises(ConfigError, match="no remote named 'nope'"):
+        remove_remote(remotes, "nope")
+
+
+# --- save_tools (D56) ------------------------------------------------------
+
+
+def test_save_tools_writes_table_and_preserves_remotes(home):
+    save_remotes(home, [Remote(name="origin", url="https://a")])
+    result = save_tools(home, install="dnf install -y {packages}", escalate="sudo")
+    assert result == Tools(install="dnf install -y {packages}", escalate="sudo")
+    assert load_tools(home) == result
+    assert load_remotes(home) == [Remote(name="origin", url="https://a")]
+
+
+def test_save_tools_none_leaves_a_key_unchanged(home):
+    save_tools(home, install="brew install {packages}", escalate=None)
+    # Setting only escalate must not disturb the existing install command.
+    save_tools(home, install=None, escalate="sudo")
+    assert load_tools(home) == Tools(install="brew install {packages}", escalate="sudo")
+
+
+def test_save_tools_empty_string_clears_a_key(home):
+    save_tools(home, install="brew install {packages}", escalate="sudo")
+    result = save_tools(home, install="", escalate=None)
+    assert result == Tools(install=None, escalate="sudo")
+    assert load_tools(home) == Tools(install=None, escalate="sudo")
+
+
+def test_save_tools_refuses_unknown_top_level_settings(home):
+    home.mkdir(parents=True)
+    (home / "config.toml").write_text("future_setting = true\n")
+    before = (home / "config.toml").read_text()
+    with pytest.raises(ConfigError, match="future_setting"):
+        save_tools(home, install="x {packages}", escalate=None)
     assert (home / "config.toml").read_text() == before

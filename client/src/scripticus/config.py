@@ -90,33 +90,39 @@ def _toml_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def save_remotes(home: Path, remotes: list[Remote]) -> None:
-    """Rewrite ``config.toml``'s remotes array, preserving list order.
+def _preserved_tools_table(home: Path) -> dict:
+    """The existing ``[tools]`` table to round-trip when rewriting the file.
 
-    Only the remotes array and the ``[tools]`` table are settings this
-    command understands; the ``[tools]`` table is preserved verbatim (it may
-    be org-distributed, D12/D44, and `login` must never drop it). Any other
-    top-level setting — hand-added future settings this client version can't
-    round-trip — makes `save` refuse rather than silently discard it.
+    Refuses rather than silently discards: any top-level setting this client
+    can't round-trip (anything but ``remotes``/``tools``) is an error, as is a
+    non-string ``[tools]`` value. An absent file is an empty table.
     """
     path = _config_path(home)
-    tools_table: dict = {}
-    if path.is_file():
-        data = _load_data(home)
-        extra = sorted(data.keys() - {"remotes", "tools"})
-        if extra:
+    if not path.is_file():
+        return {}
+    data = _load_data(home)
+    extra = sorted(data.keys() - {"remotes", "tools"})
+    if extra:
+        raise ConfigError(
+            f"{path} contains settings this command doesn't understand"
+            f" ({', '.join(extra)}) — edit config.toml by hand"
+        )
+    table = data.get("tools", {})
+    if not isinstance(table, dict):
+        raise ConfigError(f"{path}: [tools] must be a table")
+    for key, value in table.items():
+        if not isinstance(value, str):
             raise ConfigError(
-                f"{path} contains settings this command doesn't understand"
-                f" ({', '.join(extra)}) — add the [[remotes]] entry manually"
+                f"{path}: cannot preserve [tools] {key} (not a string)"
+                " — edit config.toml by hand"
             )
-        tools_table = data.get("tools", {})
-        for key, value in tools_table.items():
-            if not isinstance(value, str):
-                raise ConfigError(
-                    f"{path}: cannot preserve [tools] {key} (not a string)"
-                    " — add the [[remotes]] entry manually"
-                )
+    return table
 
+
+def _write_config(home: Path, remotes: list[Remote], tools_table: dict) -> None:
+    """Rewrite ``config.toml`` from the given remotes and ``[tools]`` table —
+    the sole writer, so remotes-only and tools-only edits share one format.
+    """
     lines = []
     for remote in remotes:
         lines.append("[[remotes]]")
@@ -129,7 +135,34 @@ def save_remotes(home: Path, remotes: list[Remote]) -> None:
             lines.append(f"{key} = {_toml_string(value)}")
         lines.append("")
     home.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines))
+    _config_path(home).write_text("\n".join(lines))
+
+
+def save_remotes(home: Path, remotes: list[Remote]) -> None:
+    """Rewrite the remotes array, preserving list order and the operator's
+    ``[tools]`` table (D44) verbatim (org-shared, and `login` must never drop
+    it). Any other top-level setting this client can't round-trip makes `save`
+    refuse rather than silently discard it.
+    """
+    _write_config(home, remotes, _preserved_tools_table(home))
+
+
+def save_tools(home: Path, install: str | None, escalate: str | None) -> Tools:
+    """Set the ``[tools]`` table, preserving the remotes list (D56).
+
+    ``None`` leaves a key unchanged; the empty string clears it; any other
+    value sets it. Returns the resulting :class:`Tools`.
+    """
+    table = _preserved_tools_table(home)
+    for key, value in (("install", install), ("escalate", escalate)):
+        if value is None:
+            continue
+        if value == "":
+            table.pop(key, None)
+        else:
+            table[key] = value
+    _write_config(home, load_remotes(home), table)
+    return Tools(install=table.get("install"), escalate=table.get("escalate"))
 
 
 def find_remote(remotes: list[Remote], name: str) -> Remote | None:
@@ -137,6 +170,30 @@ def find_remote(remotes: list[Remote], name: str) -> Remote | None:
         if remote.name == name:
             return remote
     return None
+
+
+def add_remote(remotes: list[Remote], name: str, url: str) -> list[Remote]:
+    """Append a remote at lowest search priority (D56). A same-name, same-url
+    add is idempotent (returns the list unchanged); a same-name, different-url
+    add is refused, as `login` refuses to re-point a remote (D35).
+    """
+    existing = find_remote(remotes, name)
+    if existing is not None:
+        if existing.url == url:
+            return remotes
+        raise ConfigError(
+            f"remote '{name}' already exists with a different URL"
+            f" ({existing.url}) — remove it first, or use another name"
+        )
+    return remotes + [Remote(name=name, url=url)]
+
+
+def remove_remote(remotes: list[Remote], name: str) -> list[Remote]:
+    """The remotes list without ``name``; an unknown name is a ConfigError."""
+    if find_remote(remotes, name) is None:
+        known = ", ".join(r.name for r in remotes) or "none configured"
+        raise ConfigError(f"no remote named '{name}' (remotes: {known})")
+    return [remote for remote in remotes if remote.name != name]
 
 
 def default_remote(remotes: list[Remote]) -> Remote | None:
