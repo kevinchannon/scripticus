@@ -8,11 +8,14 @@ copying them around from wikis, chat, and assorted git repos.
 
 ## Installing
 
-The client requires Python 3.11+.
+The client requires Python 3.11+. Install it as an isolated CLI tool with
+[pipx](https://pipx.pypa.io) (recommended) or [uv](https://docs.astral.sh/uv/) —
+either puts `scripticus` on your PATH without touching your project or system
+Python:
 
 ```console
-$ pip install scripticus
-$ scripticus init            # creates ~/.scripticus, adds bin dir to PATH
+$ pipx install scripticus       # or: uv tool install scripticus
+$ scripticus init               # creates ~/.scripticus, adds bin dir to PATH
 ```
 
 Restart your shell (or re-source your profile) so `~/.scripticus/bin` is on
