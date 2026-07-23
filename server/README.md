@@ -8,8 +8,43 @@ a Scripticus registry. Installing this package provides the
 
 ## Running the server
 
-`scripticus-svr` starts the service, printing its version and address on
-start-up:
+The recommended way to run a Scripticus registry is the Docker Compose
+bundle: a reverse proxy fronting the index service and the Gitea instance
+that provides storage, authentication, and namespace ownership. Server
+releases publish a Docker image to
+[`kevinchannon/scripticus-server`](https://hub.docker.com/r/kevinchannon/scripticus-server)
+(tagged with the release version and `latest`), and the repository's
+`docker-compose.yml` wires the whole bundle together — no checkout needed.
+The proxy is the single URL clients use (`http://localhost:8000`): it routes
+blob downloads to Gitea and everything else to the index, so a client needs
+no Gitea address of its own (D45). Gitea's web UI stays on
+`http://localhost:3000` for first-run setup.
+
+```console
+$ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
+$ docker compose up -d
+$ curl http://localhost:8000/health
+{"status":"ok"}
+```
+
+First-run Gitea setup: accounts and organisations are managed in Gitea
+(http://localhost:3000), and a Scripticus namespace *is* a Gitea user or
+organisation, claimed first-come-first-served, with publish rights
+following Gitea's own membership and ACLs. So, once the bundle is up:
+
+1. Register your user in the Gitea web UI (the first registered user is
+   the instance admin), and create an organisation for any shared
+   namespace you want.
+2. Generate a token under *Settings → Applications → Manage Access
+   Tokens* with package write and user read scopes.
+3. Publish with that token (see [Publishing](#publishing) below).
+
+### Running the index service directly
+
+Of course, you can also just run the index service on its own — without
+the proxy-and-Gitea bundle — which is handy for development or slotting it
+into infrastructure you already operate. `scripticus-svr` starts the
+service, printing its version and address on start-up:
 
 ```console
 $ scripticus-svr --host 0.0.0.0 --port 8000
@@ -19,6 +54,13 @@ scripticus-svr 0.1.0 — serving on http://0.0.0.0:8000 (interactive API docs at
 Both options are optional; the default is `127.0.0.1:8000`. The API is
 self-describing: interactive docs are served at `/docs` and the OpenAPI
 spec at `/openapi.json`.
+
+Run this way, the index service still needs a Gitea instance to publish
+against (`SCRIPTICUS_GITEA_URL`, default `http://localhost:3000`) and an
+index database — a local SQLite file (`scripticus-index.db`) by default,
+or set `SCRIPTICUS_INDEX_DB` to any SQLAlchemy URL to point elsewhere;
+tables are created automatically on first use. The Compose bundle provides
+both for you.
 
 ### Health check
 
@@ -41,10 +83,6 @@ balancers and container orchestrators.
   name contains `q` (all parameters optional), with each result's latest
   non-yanked version. Yanked versions are invisible to search; `platform`
   and `language` filter on the artifacts a version actually provides.
-
-The index database defaults to a local SQLite file
-(`scripticus-index.db`); set `SCRIPTICUS_INDEX_DB` to any SQLAlchemy URL
-to point elsewhere. Tables are created automatically on first use.
 
 ### Publishing
 
@@ -95,38 +133,6 @@ $ curl -X PATCH http://localhost:8000/packages/infra/backup-rotate/1.2.0 \
 Unlike publish, this touches no Gitea blob — it flips one flag on the index
 record. An unknown version is a 404; yank is idempotent and carries no time
 window, so a version can be un-yanked at any time.
-
-### Docker
-
-Server releases publish a Docker image to
-[`kevinchannon/scripticus-server`](https://hub.docker.com/r/kevinchannon/scripticus-server)
-(tagged with the release version and `latest`). The repository's
-`docker-compose.yml` is the full registry bundle — a reverse proxy fronting
-the index service and the Gitea instance that provides storage,
-authentication, and namespace ownership — and needs no checkout. The proxy
-is the single URL clients use (`http://localhost:8000`): it routes blob
-downloads to Gitea and everything else to the index, so a client needs no
-Gitea address of its own (D45). Gitea's web UI stays on
-`http://localhost:3000` for first-run setup.
-
-```console
-$ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
-$ docker compose up -d
-$ curl http://localhost:8000/health
-{"status":"ok"}
-```
-
-First-run Gitea setup: accounts and organisations are managed in Gitea
-(http://localhost:3000), and a Scripticus namespace *is* a Gitea user or
-organisation, claimed first-come-first-served, with publish rights
-following Gitea's own membership and ACLs. So, once the bundle is up:
-
-1. Register your user in the Gitea web UI (the first registered user is
-   the instance admin), and create an organisation for any shared
-   namespace you want.
-2. Generate a token under *Settings → Applications → Manage Access
-   Tokens* with package write and user read scopes.
-3. Publish with that token (see above).
 
 ## Licence
 
