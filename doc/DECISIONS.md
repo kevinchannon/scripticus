@@ -1825,3 +1825,57 @@ subprocess per `source`; consumer-language-as-requirement reuses the existing
   (à la D28/D44) — deferred to implementation.
 - Bad: per D14 nothing verifies a `load` script is actually sourceable or used;
   a broken library surfaces only at the consumer's runtime.
+
+## D58. Snippets are a copy-pasted, multi-language package kind, printed to stdout
+
+**Decision**: Add *snippets* — reusable boilerplate (argument parsing, signal
+`trap`s, and the like) that is printed for the user to paste and edit into their
+own script, never run or sourced. A snippet package is a third package kind, a
+`[snippet]` family **mutually exclusive with `[commands]` and `[library]`**;
+each snippet is a `[snippet.<name>]` section carrying only a `description`, with
+the code in files under `src/` by convention `src/<name>.<ext>` (flat, no extra
+directory layer), so authors keep shellcheck/highlighting on real source. Unlike
+commands and libraries, a snippet package has **no package-level `language`** and
+may be arbitrarily multi-language: the same name in many extensions as sibling
+files (`src/args.py`, `src/args.cpp`, `src/args.sh`) share one section. A
+snippet's language is a pure label — never executed — so it needs no interpreter
+and no `LANGUAGES` entry, reaching languages the system cannot run (C++, Rust,
+Go, Java) with zero table changes. The `snip` command is stdout-only (`snip
+args.cpp` prints; `snip args` collapses to that when unambiguous, else lists the
+variants; `ns/name:args.cpp` is the escape hatch) — no in-file insertion, since
+`>>`/`:r`/`pbcopy` compose. Folding the language into the name token leaves one
+collision axis (namespace), reusing D38 last-install-wins + `use`. The language
+enumeration is **derived, not authored**: a pure `common` filename→label rule
+(D51) projected server-side at publish into the index (D21 — the manifest stays
+verbatim intent), so `search` matches on language. `new --snippet` scaffolds.
+Post-v1, unscheduled; full shape in the roadmap.
+
+**Reason**: The boilerplate *is* the deliverable — arg-parsing and traps are
+reusable in *shape* but per-script in *content* (which flags, which signals,
+what cleanup), so a library (D57), whose value is fixed content sourced live,
+cannot serve them; the user needs text they read and edit. This also inverts the
+usual readability-over-terseness steer: `snip` competes with muscle memory and a
+web search, not other package managers, so it must be terser than retyping —
+hence stdout, bare-name-when-unambiguous, and the extension carried inline as the
+selector every dev already knows. Multi-language-per-package is right here (unlike
+commands/libraries) because one dev wants arg-parse boilerplate across languages
+in the same week, and since snippets are never executed the "one language per
+package" constraint has no purpose. Deriving the language list server-side reuses
+the extract-and-project publish path (`_extract_archive`/`tree_hash`) already in
+place, so the author maintains nothing and the manifest/content boundary (D21)
+stays clean.
+
+**Consequences**:
+- Good: reuses D3/publish/yank/update/search unchanged and sidesteps the
+  D11/D38 shim system entirely (no shims, PATH, or staging — `snip` is a pure
+  read).
+- Good: snippet-as-label lets Scripticus distribute boilerplate for languages it
+  can never run as commands, with no `LANGUAGES`-table growth.
+- Good: derived enumeration keeps the author out of a bookkeeping loop and the
+  manifest verbatim, while still letting language influence search.
+- Bad: a third exclusive package kind adds a manifest-shape branch (`language`
+  present for command/library, absent for snippet) and a new index projection.
+- Bad: per D14 nothing verifies a snippet is valid in its claimed language; a
+  broken paste surfaces only in the user's own script.
+- Bad: open items deferred to implementation — per-variant description override,
+  further CLI-prefix terseness, extension aliasing, and `list` surfacing.

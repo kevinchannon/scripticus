@@ -86,6 +86,90 @@ New surface:
 > scratch with `new`). That is a separate discussion, not part of the library
 > design above.
 
+## Snippets — reusable boilerplate, copy-pasted not run
+
+Distribute *boilerplate*: the fiddly-but-standard code every language has and
+nobody remembers exactly — argument parsing (shell's switch/case + `shift`
+dance, or another language's equivalent) and signal `trap`s are the motivating
+pair. A snippet is printed to the terminal; you read it, paste it, and edit it
+into your own script. The design is settled (to be recorded as D58);
+implementation is unscheduled.
+
+Distinct from libraries (D57), and the distinction is the whole justification:
+
+- A **library** has fixed content and a *live* relationship to the consumer —
+  sourced at runtime, versioned, resolved, updatable. A **snippet** has a
+  reusable *shape* but per-script content — you read and edit it. Sourcing fails
+  for arg-parsing and traps precisely because which flags, which signals, and
+  what cleanup are inherently per-script; the boilerplate *is* the deliverable.
+- D57's shell-only rationale does **not** carry over. That argument was "other
+  languages already have package managers" — but PyPI hands you no `argparse`
+  skeleton. Snippets are multi-language from day one.
+
+Rides on existing design for free:
+
+- **Content-addressed identity (D3)**, **publish / yank / update**, and
+  **search** are blob-and-index mechanics — a snippet package is just a package
+  tree, unchanged.
+- **No shims, no PATH, no staging.** A snippet is never installed onto a path or
+  run; `snip` reads a file at a lockfile-known location. It sidesteps the
+  D11/D38 shim system entirely.
+
+New surface:
+
+- [ ] **Manifest marker + structure.** A `[snippet]`-family package is a third
+      package kind, **mutually exclusive with `[commands]` and `[library]`**
+      (D57 symmetry). Each snippet is a `[snippet.<name>]` section carrying only
+      a `description`; the code lives in files under `src/` by convention —
+      `src/<name>.<ext>`, flat, no extra directory layer, so authors keep
+      shellcheck / syntax highlighting / `-n` on real source files rather than
+      strings embedded in TOML.
+- [ ] **Arbitrarily multi-language, per-file.** A single snippet package may hold
+      the same snippet name in many languages as sibling files — `src/args.py`,
+      `src/args.cpp`, `src/args.sh` — all sharing one `[snippet.args]` section
+      (the description is language-agnostic intent). Consequently a snippet
+      package has **no package-level `language` field** (unlike command/library,
+      where it is load-bearing for execution/sourcing). A snippet's language is a
+      pure *label* — Scripticus never runs it — so it needs no interpreter and no
+      `LANGUAGES`-table entry: snippets reach languages the rest of the system
+      structurally cannot (C++, Rust, Go, Java) with zero table changes.
+- [ ] **The `snip` command (terseness is the governing constraint).** `snip`
+      competes with the user's muscle memory and a web-search tab, not with other
+      package managers; if it is not faster than retyping the boilerplate, it is
+      unused. So the everyday form is `snip <name>.<ext>` → the snippet on
+      stdout. `snip <name>` (no extension) collapses to that when only one
+      variant exists, and otherwise **lists the available variants** rather than
+      guessing (there is no meaningful "last wins" across languages a dev uses in
+      parallel). Fully-namespaced `ns/name:<name>.<ext>` is the rarely-touched
+      escape hatch (v1's fully-namespaced constraint, D46, applies unchanged).
+- [ ] **Stdout only — no in-file insertion.** `snip` is a pure read with no side
+      effects and never mutates a file it does not own. Composition is the shell's
+      job: `snip trap.sh >> script.sh`, `:r !snip trap.sh` in vim, `pbcopy`, etc.
+- [ ] **One collision axis.** Folding the language into the name token
+      (`args.cpp`) leaves only the *namespace* collision — two same-language packs
+      both defining `args.cpp` — which reuses D38 last-install-wins + `use`, not a
+      new mechanism. Because reads are cheap and side-effect-free, the tie-break
+      can lean toward listing over silently guessing.
+- [ ] **Derived language enumeration (author maintains nothing).** The author
+      never hand-lists a snippet's languages. The filename → language-label rule
+      is a pure `common` function (D51). It is **projected server-side at publish
+      into the index** — not written back into the manifest — keeping the manifest
+      verbatim authored intent (name + description) and the derived variant list a
+      re-derivable projection (D21). The server already fully extracts every
+      archive at publish (`_extract_archive` / `tree_hash` in `publish.py`), so
+      globbing `src/` for `<name>.*` adds no new machinery. The client's local
+      `snip` globs its own installed `src/`; remote `search` reads the projection
+      — so **languages influence search results**.
+- [ ] **Scaffolding.** `scripticus new --snippet` (alongside D57's
+      `--cmd`/`--lib`) so the multi-file tree costs one command and authors keep
+      their linters. Ceremony is a scaffolding problem, not a format problem.
+- [ ] **Left to implementation.** Whether a description may be overridden
+      per-language variant (default: shared); whether the `snip` *invocation*
+      earns further terseness at the CLI-prefix level (a shipped short alias, or
+      `init` (D39) encouraging one); extension aliasing (`.cc` vs `.cpp` is
+      WYSIWYG — the on-disk extension is the typed key, no normalization for v1);
+      and how snippet packages surface in `list`.
+
 ## Widening beyond a single organisation
 
 - [ ] Public/multi-tenant hosting model (same client, different default
