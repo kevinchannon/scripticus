@@ -1761,3 +1761,67 @@ command local-only.
   the add-and-authenticate shortcut — but a documented overlap.
 - Bad: `config remote add` appends (lowest priority); reordering means remove +
   re-add until a priority flag earns its place.
+
+---
+
+## D57. Library scripts are shell-only, with a BATS-style `scr_load` loader
+
+**Decision**: Add *libraries* — reusable code that is `source`d into a runnable
+script rather than run itself. Libraries target the POSIX-`source` shell family
+only: `sh` (added as a language, the portable baseline) and `bash` (an opt-in
+superset). Library-grade reuse in every other language Scripticus distributes
+*commands* in (Python, Ruby, Perl, PowerShell, …) is a deliberate non-goal —
+those defer to the language's own package manager. A fieldless `[library]` table
+marks a package a library, mutually exclusive with `[commands]`; its language
+must be `sh` or `bash`. Structure follows BATS convention: a single sourced
+entry point `src/load.<ext>` (paralleling the `src/main.<ext>` command default)
+that may source its own siblings or `scr_load` other library packages — the
+manifest enumerates nothing. Compatibility is a pure `language_satisfies` in
+`common` (shared by resolver and install), where a package's declared
+`language` doubles as what it can source: a consumer of language `C` may load a
+library of language `L` iff `L == "sh"` or `L == C`. Exports stage to a
+version-less `$SCRIPTICUS_LIB/<namespace>/<name>/`. The loader `scr_load` is
+written in POSIX `sh`, references libraries by fully-namespaced `namespace/name`,
+searches in-process (a sourced function, no per-`source` fork), and is
+transitive, idempotent (an include-guard, so diamonds are safe), and soft-fail
+(nonzero return, not a hard abort) on a miss; it never takes a version.
+`scr_load` is available in two contexts — auto-injected into commands Scripticus
+launches through their shims, and opt-in for a user's own scripts via
+`scripticus init` (which gains the `$SCRIPTICUS_LIB` export alongside its PATH
+bootstrap, D39). `new` gains a `--cmd`/`--lib` flag to scaffold either. Post-v1,
+unscheduled; full shape in the roadmap. (Importing an existing script into a
+package — an `import` command — is a separate, out-of-scope discussion.)
+
+**Reason**: Shell is the one common scripting language with no native
+library-distribution mechanism — every nontrivial shell project reinvents a
+`lib/` + `source` convention, and BATS had to grow `bats_load_library` for
+exactly this. The languages that *do* have one shouldn't be duplicated, and the
+same test that says "defer to native managers" isolates the single language that
+needs a Scripticus-authored loader (shell), so the feature collapses to one
+loader, no `PYTHONPATH`/`PSModulePath` fan-out, and no cross-language
+import-namespace problem. Most of the hard machinery already fits: content-
+addressed identity (D3) is agnostic to runnability, single-version-per-closure
+resolution (D42/D47) is exactly what a library wants (you cannot sanely source
+two versions into one namespace), and publish/yank/update are unchanged. The
+BATS entry-point convention is proven; an in-process sourced loader avoids a
+subprocess per `source`; consumer-language-as-requirement reuses the existing
+`language` field rather than adding a per-dependency dialect annotation.
+
+**Consequences**:
+- Good: fills a real gap (no package manager exists for reusable shell code)
+  while reusing D3/D42/D47 unchanged, and libraries sidestep the D11/D38 shim
+  system entirely — they have no shims, so no convenience-tier collisions.
+- Good: shell-only scope keeps it a single loader with no per-language fan-out;
+  single-version-per-closure makes reference paths version-less and keeps
+  `scr_load` free of version arguments.
+- Good: `sh` as a first-class language also enables portable `sh` *commands*, a
+  free by-product.
+- Bad: `language` now does double duty — package identity *and* "what I can
+  source" — a subtle overload of one field.
+- Bad: two availability contexts (shim injection + `init` global) are two code
+  paths to build and document.
+- Bad: two questions are left open — how command-less libraries surface in
+  `search`/`list`, and whether an orphaned library is auto-removed on uninstall
+  (à la D28/D44) — deferred to implementation.
+- Bad: per D14 nothing verifies a `load` script is actually sourceable or used;
+  a broken library surfaces only at the consumer's runtime.

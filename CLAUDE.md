@@ -249,8 +249,10 @@ push `server-vX.Y.0` and `client-vX.Y.0` together.
 - [README.md](README.md) — user-facing description of the intended product
   (CLI usage, manifest format, server setup).
 - [doc/VISION.md](doc/VISION.md) — two-paragraph purpose statement.
-- [doc/ROADMAP.md](doc/ROADMAP.md) — v1.0.0 scope as a checklist, plus
-  deliberately unscheduled post-v1 items.
+- [doc/ROADMAP.md](doc/ROADMAP.md) — the forward-looking roadmap: unscheduled
+  post-v1 work (library scripts D57, the "widening beyond a single org" items,
+  and the one carried-over v1 item). The shipped v1.0.0 checklist is archived at
+  [doc/archive/ROADMAP-v1.0.0.md](doc/archive/ROADMAP-v1.0.0.md).
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index
   data model.
 - [doc/DECISIONS.md](doc/DECISIONS.md) — the decision record. Each
