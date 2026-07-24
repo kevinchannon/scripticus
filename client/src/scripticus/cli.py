@@ -265,7 +265,7 @@ def install(
     package: Optional[str] = typer.Argument(
         None,
         help="Package to install from a remote, as 'namespace/name' or"
-        " 'namespace/name@<version>' (a full name, not bare — D46).",
+        " 'namespace/name@<version>' (a full name, not bare).",
     ),
     file: Optional[Path] = typer.Option(
         None,
@@ -501,7 +501,7 @@ def _install_remote(
 
 
 def _print_held_back(plans: "list[tuple]") -> None:
-    """Say why a target could not reach its newest version (D52), so a
+    """Say why a target could not reach its newest version, so a
     held-back update is never mistaken for an up-to-date one."""
     for _, _, result in plans:
         for package in result.packages:
@@ -546,8 +546,8 @@ def update(
 
     Targets float to the newest version compatible with everything else
     installed; a package a shared constraint holds back is reported with the
-    blocker named (D52). Locally-installed (-f) packages cannot be updated and
-    are skipped (D20)."""
+    blocker named. Locally-installed (-f) packages cannot be updated and
+    are skipped."""
     home = scripticus_home()
     lock = read_lockfile(home)
     mode = force.value if force else ("no-conflicts" if yes else None)
@@ -1173,7 +1173,7 @@ def config_tools(
         ' clears it), e.g. --escalate=sudo.',
     ),
 ) -> None:
-    """Show or set the system-tool installer command (the tools table, D44)."""
+    """Show or set the system-tool installer command."""
     home = scripticus_home()
     try:
         if install is None and escalate is None:
