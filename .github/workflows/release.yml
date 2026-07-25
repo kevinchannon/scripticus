@@ -103,10 +103,29 @@ jobs:
             fi
           done <<< "$REQS"
 
+      - name: Release notes from the tag annotation
+        id: notes
+        run: |
+          # `tt release` puts the package's CHANGELOG.md section into the
+          # annotated tag's message body (D59) — use it verbatim as the release
+          # body, with GitHub's generated commit notes appended underneath. A
+          # lightweight tag, or an annotated one with only its subject line
+          # (a hand-pushed tag, or anything from before D59), yields an empty
+          # file and leaves just the generated notes.
+          scripts/changelog tag-notes "$GITHUB_REF_NAME" > release-notes.md
+          if [ -s release-notes.md ]; then
+            echo "Release body taken from the tag annotation:"
+            cat release-notes.md
+          else
+            echo "::warning::$GITHUB_REF_NAME carries no annotation body — the release will show generated notes only"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          # The changelog section first, then GitHub's generated commit list.
+          body_path: release-notes.md
           generate_release_notes: true
           draft: false
           prerelease: false

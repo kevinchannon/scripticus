@@ -8,10 +8,12 @@
 #
 #   scripts/changelog section client            # print the pending block
 #   scripts/changelog release client 0.6.1      # roll it into a released section
+#   scripts/changelog tag-notes client-v0.6.1   # read it back off the tag
 #
-# `tt release` drives both (see tasktree.yaml); they are also useful by hand to
-# preview what a tag message would say. CHANGELOG_FILE overrides the target
-# file, which is what the tests use.
+# `tt release` drives the first two (see tasktree.yaml); they are also useful by
+# hand to preview what a tag message would say. The third is the read side, used
+# by .github/workflows/release.yml to make the GitHub release body match the tag.
+# CHANGELOG_FILE overrides the target file, which is what the tests use.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,7 +22,20 @@ file="${CHANGELOG_FILE:-${here}/CHANGELOG.md}"
 usage() {
     echo "usage: $(basename "$0") section <package>" >&2
     echo "       $(basename "$0") release <package> <version> [date]" >&2
+    echo "       $(basename "$0") tag-notes <tag>" >&2
     exit 2
+}
+
+# Drop leading and trailing blank lines from stdin, so an all-blank block comes
+# out as nothing at all rather than as whitespace that reads as content.
+trim_blanks() {
+    awk '
+        { line[n++] = $0 }
+        END {
+            s = 0; while (s < n && line[s] == "") s++
+            while (n > s && line[n-1] == "") n--
+            for (i = s; i < n; i++) print line[i]
+        }'
 }
 
 # The pending bullets for one package, with leading/trailing blanks trimmed.
@@ -37,14 +52,7 @@ section() {
             pkgsec = (tolower(h) == pkg); next
         }
         pkgsec { print }
-    ' "$file" \
-      | awk '
-            { line[n++] = $0 }
-            END {
-                s = 0; while (s < n && line[s] == "") s++
-                while (n > s && line[n-1] == "") n--
-                for (i = s; i < n; i++) print line[i]
-            }'
+    ' "$file" | trim_blanks
 }
 
 # Move the package's pending bullets into a new released section, inserted
@@ -83,9 +91,25 @@ release() {
     mv "$tmp" "$file"
 }
 
+# The body of a release tag's annotation — the changelog section `release` put
+# there, minus the "<dist> <version>" subject line. Empty (exit 0, no output)
+# for a lightweight tag, or an annotated tag carrying only a subject: a
+# hand-pushed tag, or any tag from before this file existed. The object-type
+# check matters, because `git tag --format` on a lightweight tag happily
+# reports the *commit's* message instead.
+tag_notes() {
+    local tag="$1" kind
+    kind="$(git cat-file -t "refs/tags/${tag}" 2>/dev/null || true)"
+    [ "$kind" = "tag" ] || return 0
+    # --format always terminates with a newline of its own, so a body-less tag
+    # yields a lone blank line; trim it back to nothing.
+    git tag -l --format='%(contents:body)' "$tag" | trim_blanks
+}
+
 [ $# -ge 2 ] || usage
 case "$1" in
-    section) [ $# -eq 2 ] || usage; section "$2" ;;
-    release) [ $# -ge 3 ] || usage; release "$2" "$3" "${4:-}" ;;
-    *)       usage ;;
+    section)   [ $# -eq 2 ] || usage; section "$2" ;;
+    release)   [ $# -ge 3 ] || usage; release "$2" "$3" "${4:-}" ;;
+    tag-notes) [ $# -eq 2 ] || usage; tag_notes "$2" ;;
+    *)         usage ;;
 esac

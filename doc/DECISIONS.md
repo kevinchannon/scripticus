@@ -1912,9 +1912,10 @@ than by a project-wide version: pending bullets live under `## Unreleased` /
 `### <package>`. Releasing a package lifts its block out to become the body of
 its release tag's annotation and rolls it down into a
 `## <package> <version> — <date>` section, in the same commit that bumps the
-dependency pins. Release tags are annotated, never lightweight. The extraction
-and the roll live in `scripts/changelog` (`section` / `release`), which
-`tt release` drives.
+dependency pins. Release tags are annotated, never lightweight, and the release
+workflow reads that annotation back as the GitHub release body. The three
+halves live in `scripts/changelog` (`section` / `release` / `tag-notes`), driven
+by `tt release` and by `.github/workflows/release.yml`.
 
 **Reason**: Each member releases on its own tag with its own version (D29/D51),
 so a Keep-a-Changelog file keyed by one version number has nowhere to put a
@@ -1928,8 +1929,11 @@ requires, and makes the tag point at a tree whose changelog already records
 the release.
 
 **Consequences**:
-- Good: `git show <pkg>-vX.Y.Z` explains the release; no separate release-notes
-  step, and nothing to keep in sync with the tag.
+- Good: `git show <pkg>-vX.Y.Z` explains the release, and so does its GitHub
+  release page — one source, no separate release-notes step, nothing to keep in
+  sync.
+- Neutral: GitHub's generated commit list is kept, appended below the changelog
+  body — the summary leads, the raw commits stay available under it.
 - Good: a package with nothing pending still releases — an empty block warns
   and falls back to the bare subject line rather than blocking.
 - Neutral: the changelog is a human summary, deliberately not derived from
@@ -1937,6 +1941,9 @@ the release.
   accurate or complete.
 - Bad: the file is a merge-conflict magnet in exactly the place several people
   would edit at once (the `## Unreleased` blocks).
-- Bad: release history now lives in two places — the changelog's rolled
-  sections and the tags — that only agree because one is generated from the
-  other.
+- Bad: release history now lives in three places — the changelog's rolled
+  sections, the tags, and the GitHub releases — that only agree because each is
+  generated from the one before it.
+- Bad: a tag pushed by hand rather than by `tt release` gets a release page with
+  generated notes only; the workflow warns but does not fail, since a missing
+  summary is no reason to block a release that has already built.

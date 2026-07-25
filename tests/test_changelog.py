@@ -41,9 +41,10 @@ Preamble that must survive untouched.
 """
 
 
-def run(args, changelog: Path) -> subprocess.CompletedProcess:
+def run(args, changelog: Path, cwd: Path | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         [str(SCRIPT), *args],
+        cwd=cwd,
         env={"CHANGELOG_FILE": str(changelog), "PATH": "/usr/bin:/bin:/usr/sbin"},
         capture_output=True,
         text=True,
@@ -115,6 +116,71 @@ def test_release_is_a_no_op_when_nothing_is_pending(changelog: Path) -> None:
     before = changelog.read_text()
     run(["release", "client", "0.6.1", "2026-07-25"], changelog)
     assert changelog.read_text() == before
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """A throwaway git repo with one commit, for the tag-notes cases."""
+    work = tmp_path / "repo"
+    work.mkdir()
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(work)]
+    subprocess.run([*git, "init", "-q"], check=True)
+    (work / "f").write_text("x\n")
+    subprocess.run([*git, "add", "f"], check=True)
+    subprocess.run(
+        [*git, "commit", "-q", "-m", "Subject of the commit", "-m", "Commit body."],
+        check=True,
+    )
+    return work
+
+
+def tag(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(repo), "tag", *args],
+        check=True,
+    )
+
+
+def test_tag_notes_returns_the_annotation_body(repo: Path, changelog: Path) -> None:
+    tag(repo, "-a", "client-v0.6.1", "-m", "scripticus 0.6.1", "-m", "- A change.\n- Another.")
+    out = run(["tag-notes", "client-v0.6.1"], changelog, cwd=repo).stdout
+
+    assert out == "- A change.\n- Another.\n"
+
+
+def test_tag_notes_is_empty_for_a_subject_only_annotated_tag(
+    repo: Path, changelog: Path
+) -> None:
+    """Tags cut before D59 carry just '<dist> <version>'."""
+    tag(repo, "-a", "client-v0.6.0", "-m", "scripticus 0.6.0")
+    assert run(["tag-notes", "client-v0.6.0"], changelog, cwd=repo).stdout == ""
+
+
+def test_tag_notes_never_falls_through_to_the_commit_message(
+    repo: Path, changelog: Path
+) -> None:
+    """`git tag --format` on a lightweight tag reports the commit's message —
+    which must not end up as release notes."""
+    tag(repo, "v0.1.0")
+    out = run(["tag-notes", "v0.1.0"], changelog, cwd=repo).stdout
+
+    assert out == ""
+    assert "Commit body." not in out
+
+
+def test_tag_notes_is_empty_for_an_unknown_tag(repo: Path, changelog: Path) -> None:
+    assert run(["tag-notes", "client-v9.9.9"], changelog, cwd=repo).stdout == ""
+
+
+def test_a_released_section_survives_the_round_trip_to_a_tag(
+    repo: Path, changelog: Path
+) -> None:
+    """The whole D59 loop: pending block -> tag annotation -> release notes."""
+    notes = run(["section", "server"], changelog).stdout.rstrip("\n")
+    run(["release", "server", "0.7.0", "2026-07-25"], changelog)
+    tag(repo, "-a", "server-v0.7.0", "-m", "scripticus-server 0.7.0", "-m", notes)
+
+    assert run(["tag-notes", "server-v0.7.0"], changelog, cwd=repo).stdout == notes + "\n"
 
 
 def test_releasing_several_packages_stacks_newest_first(changelog: Path) -> None:

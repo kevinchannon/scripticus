@@ -219,11 +219,15 @@ Release notes live in [CHANGELOG.md](CHANGELOG.md), grouped by package rather
 than by a project-wide version (D59): pending bullets go under `## Unreleased` /
 `### <package>` as the change is made. Releasing a package moves that block into
 a `## <package> <version> — <date>` section and uses it as the body of the
-**annotated** release tag, so `git show <pkg>-vX.Y.Z` explains the release. The
-two halves are `scripts/changelog section <pkg>` (preview what a tag message
-would say) and `scripts/changelog release <pkg> <ver>` (roll it), unit-tested in
-[tests/test_changelog.py](tests/test_changelog.py). An empty block warns and
-falls back to a bare subject line rather than blocking the release.
+**annotated** release tag, so `git show <pkg>-vX.Y.Z` explains the release; the
+release workflow then reads that annotation back as the GitHub release body
+(with GitHub's generated commit list appended below it), so the changelog, the
+tag, and the release page all say the same thing. The three halves are
+`scripts/changelog section <pkg>` (preview what a tag message would say),
+`release <pkg> <ver>` (roll it), and `tag-notes <tag>` (read it back off the
+tag), unit-tested in [tests/test_changelog.py](tests/test_changelog.py). An
+empty block warns at both ends and degrades to a bare subject line and
+generated-only release notes, rather than blocking the release.
 
 **Release runbook** (only tag the packages that actually changed since their
 last tag — `git diff --name-only <pkg>-vLAST..HEAD -- <pkg>/src`):
