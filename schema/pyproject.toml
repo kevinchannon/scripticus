@@ -9,7 +9,7 @@ dependencies = [
     "pydantic>=2.7",
     # The manifest reuses common's version grammar; same-minor bound (D29/D51):
     # an older schema must not pick up a future common release that changed it.
-    "scripticus-common>=0.1.1,<0.2.0",
+    "scripticus-common>=0.1.0,<0.2.0",
 ]
 
 [tool.uv.sources]
