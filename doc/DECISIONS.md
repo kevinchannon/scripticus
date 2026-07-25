@@ -1840,10 +1840,13 @@ may be arbitrarily multi-language: the same name in many extensions as sibling
 files (`src/args.py`, `src/args.cpp`, `src/args.sh`) share one section. A
 snippet's language is a pure label — never executed — so it needs no interpreter
 and no `LANGUAGES` entry, reaching languages the system cannot run (C++, Rust,
-Go, Java) with zero table changes. The `snip` command is stdout-only (`snip
-args.cpp` prints; `snip args` collapses to that when unambiguous, else lists the
-variants; `ns/name:args.cpp` is the escape hatch) — no in-file insertion, since
-`>>`/`:r`/`pbcopy` compose. Folding the language into the name token leaves one
+Go, Java) with zero table changes. The `snip` command is stdout-by-default
+(`snip args.cpp` prints; `snip args` collapses to that when unambiguous, else
+lists the variants; `ns/name:args.cpp` is the escape hatch) — no in-file
+insertion, since `>>`/`:r` compose — with an opt-in `-c`/`--copy` that tees the
+snippet to the clipboard while still printing (a platform-tool-hiding tee a plain
+pipe cannot do; it always prints, and warns rather than fails where no clipboard
+exists). Folding the language into the name token leaves one
 collision axis (namespace), reusing D38 last-install-wins + `use`. The language
 enumeration is **derived, not authored**: a pure `common` filename→label rule
 (D51) projected server-side at publish into the index (D21 — the manifest stays
@@ -1867,8 +1870,11 @@ stays clean.
 
 **Consequences**:
 - Good: reuses D3/publish/yank/update/search unchanged and sidesteps the
-  D11/D38 shim system entirely (no shims, PATH, or staging — `snip` is a pure
-  read).
+  D11/D38 shim system entirely (no shims, PATH, or staging — the default `snip`
+  is a pure read).
+- Neutral: `-c`/`--copy` is the one non-stdout behaviour, but an opt-in,
+  ephemeral, user-owned clipboard write — categorically unlike the file mutation
+  the no-in-file-insertion rule rejects; the default stays a pure read.
 - Good: snippet-as-label lets Scripticus distribute boilerplate for languages it
   can never run as commands, with no `LANGUAGES`-table growth.
 - Good: derived enumeration keeps the author out of a bookkeeping loop and the

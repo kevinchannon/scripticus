@@ -142,9 +142,19 @@ New surface:
       guessing (there is no meaningful "last wins" across languages a dev uses in
       parallel). Fully-namespaced `ns/name:<name>.<ext>` is the rarely-touched
       escape hatch (v1's fully-namespaced constraint, D46, applies unchanged).
-- [ ] **Stdout only — no in-file insertion.** `snip` is a pure read with no side
-      effects and never mutates a file it does not own. Composition is the shell's
-      job: `snip trap.sh >> script.sh`, `:r !snip trap.sh` in vim, `pbcopy`, etc.
+- [ ] **Stdout by default — no in-file insertion.** `snip` never mutates a file
+      it does not own. The default is a pure read to stdout, so composition is the
+      shell's job: `snip trap.sh >> script.sh`, `:r !snip trap.sh` in vim, etc.
+- [ ] **`-c`/`--copy` — print *and* copy.** An opt-in flag that tees the snippet
+      to the clipboard while still printing it (for verification, and so stdout
+      composition is unaffected) — something a plain pipe cannot do, since
+      `snip x | pbcopy` copies but shows nothing. It also hides the platform
+      clipboard tool (macOS `pbcopy`, Windows `clip`/`Set-Clipboard`, Linux
+      `wl-copy`/`xclip`/`xsel`) behind one flag. **Degradation rule:** `-c` must
+      never cost you the snippet — it prints regardless, and where no clipboard is
+      available (headless/SSH, no tool found) it still succeeds on stdout and warns
+      on stderr. Copy is never the default: copying on every invocation would
+      surprise-clobber the clipboard when the user only wanted to read or pipe.
 - [ ] **One collision axis.** Folding the language into the name token
       (`args.cpp`) leaves only the *namespace* collision — two same-language packs
       both defining `args.cpp` — which reuses D38 last-install-wins + `use`, not a
