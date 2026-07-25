@@ -60,6 +60,44 @@ os = [{", ".join(f'"{o}"' for o in os_list)}]
     return archive_path
 
 
+def make_snippet_archive(
+    tmp_path: Path,
+    namespace="kevin-c",
+    name="boilerplate",
+    version="1.0.0",
+    snippets=("args.sh", "args.py"),
+    description="",
+) -> Path:
+    """Build and archive a snippet package (D58): [snippet.<name>] sections and
+    flat ``src/<name>.<ext>`` files, with no package language or platforms.
+    """
+    package_dir = tmp_path / f"src-{name}-{version}-snippet" / name
+    (package_dir / "src").mkdir(parents=True, exist_ok=True)
+    for filename in snippets:
+        (package_dir / "src" / filename).write_text("# boilerplate\n")
+
+    declared = sorted({filename.rsplit(".", 1)[0] for filename in snippets})
+    sections = "".join(
+        f'\n[snippet.{snippet}]\ndescription = "{snippet} boilerplate"\n'
+        for snippet in declared
+    )
+    (package_dir / "meta.toml").write_text(
+        f"""
+[package]
+namespace = "{namespace}"
+name = "{name}"
+version = "{version}"
+description = "{description}"
+{sections}"""
+    )
+
+    stem = f"{name.replace('-', '_')}-{version.replace('-', '_')}"
+    archive_path = tmp_path / f"{stem}-any-snippet.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(package_dir, arcname=name)
+    return archive_path
+
+
 class FakeGitea:
     """Stands in for GiteaClient behind the publish endpoint's boundary."""
 
@@ -103,6 +141,14 @@ class FakeGitea:
 def make_archive(tmp_path):
     def factory(**kwargs):
         return make_package_archive(tmp_path, **kwargs)
+
+    return factory
+
+
+@pytest.fixture
+def make_snippet_archive_factory(tmp_path):
+    def factory(**kwargs):
+        return make_snippet_archive(tmp_path, **kwargs)
 
     return factory
 

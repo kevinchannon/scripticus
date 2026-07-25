@@ -13,6 +13,7 @@ from scripticus_schema.index_api import (
     SearchResults,
     VersionSummary,
 )
+from scripticus_schema.manifest import extension_for_language
 from scripticus_schema.whoami_api import WhoAmI
 from scripticus_server import __version__, db
 from scripticus_server.db import get_session
@@ -100,18 +101,37 @@ def package_versions(
     )
 
 
+def _matches_language(package_version: db.PackageVersion, language: str) -> bool:
+    """Whether a version answers to a ``language`` filter.
+
+    A command package answers to its artifact's language. A snippet package has
+    none of its own — its variants carry extension labels (D58) — so it answers
+    to an extension it provides, or to a language name that implies that
+    extension, which is what lets ``--language python`` find ``args.py``.
+    """
+    if any(artifact.language == language for artifact in package_version.artifacts):
+        return True
+    wanted = {language, extension_for_language(language)}
+    return any(
+        extension in wanted
+        for snippet in package_version.snippets
+        for extension in snippet.extension_list()
+    )
+
+
 def _has_matching_artifact(
     package_version: db.PackageVersion, platform: str | None, language: str | None
 ) -> bool:
-    if platform is None and language is None:
+    # The two filters are applied independently: every artifact of a version
+    # shares its language (it is a package-level property), and a snippet
+    # package's language lives beside the artifacts rather than on them.
+    if language is not None and not _matches_language(package_version, language):
+        return False
+    if platform is None:
         return True
-    for artifact in package_version.artifacts:
-        if platform is not None and platform not in artifact.platform_list():
-            continue
-        if language is not None and artifact.language != language:
-            continue
-        return True
-    return False
+    return any(
+        platform in artifact.platform_list() for artifact in package_version.artifacts
+    )
 
 
 def _matches_query(package: db.Package, candidates: list[db.PackageVersion], q: str) -> bool:
@@ -119,7 +139,11 @@ def _matches_query(package: db.Package, candidates: list[db.PackageVersion], q: 
     package name, any candidate version's description, or any command name it
     provides. An empty ``q`` matches everything. Only the candidate versions
     (non-yanked, artifact-filtered) contribute, so a match never rests on a
-    version the result wouldn't be presented at."""
+    version the result wouldn't be presented at.
+
+    A snippet package's content is its snippets, so their names and
+    descriptions match on the same footing as command names (D58) — otherwise
+    the only searchable thing about a snippet package would be its own name."""
     needle = q.lower()
     if needle in package.name.lower():
         return True
@@ -127,6 +151,11 @@ def _matches_query(package: db.Package, candidates: list[db.PackageVersion], q: 
         if needle in (pv.description or "").lower():
             return True
         if any(needle in command.name.lower() for command in pv.commands):
+            return True
+        if any(
+            needle in snippet.name.lower() or needle in (snippet.description or "").lower()
+            for snippet in pv.snippets
+        ):
             return True
     return False
 
@@ -156,13 +185,21 @@ def search(
 
 def _summarize(package: db.Package, candidates: list[db.PackageVersion]) -> PackageSummary:
     """A package's search/list row: identity plus its latest non-yanked
-    version's number and description."""
+    version's number and description, and — for a snippet package — the
+    ``name.ext`` tokens `snip` will take (D58)."""
     latest = max(candidates, key=lambda pv: semver_key(pv.version))
+    snippets = [
+        f"{snippet.name}.{extension}"
+        for snippet in sorted(latest.snippets, key=lambda s: s.name)
+        for extension in snippet.extension_list()
+    ]
     return PackageSummary(
         namespace=package.namespace.name,
         name=package.name,
         description=latest.description,
         latest_version=latest.version,
+        kind="snippet" if latest.snippets else "command",
+        snippets=snippets,
     )
 
 

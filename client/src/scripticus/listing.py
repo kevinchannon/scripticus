@@ -35,6 +35,10 @@ class Entry:
     name: str
     version: str
     remote: str | None = None  # the source remote for an available row; None if installed
+    # "command" or "snippet" (D58). `list` enumerates identity, and a snippet
+    # package is an ordinary identity — but it provides nothing runnable, so
+    # the row says which kind it is rather than letting the reader assume.
+    kind: str = "command"
 
     @property
     def identity(self) -> str:
@@ -69,7 +73,12 @@ def build_listing(
     installed: list[Entry] = []
     if scope in ("all", "installed"):
         installed = [
-            Entry(entry["namespace"], entry["name"], entry["version"])
+            Entry(
+                entry["namespace"],
+                entry["name"],
+                entry["version"],
+                kind="snippet" if entry.get("snippets") else "command",
+            )
             for entry in lock["packages"]
             if identity_matches(glob, entry["namespace"], entry["name"])
         ]
@@ -95,7 +104,13 @@ def build_listing(
                     continue
                 seen.add(key)
                 available.append(
-                    Entry(hit.package.namespace, hit.package.name, hit.package.latest_version, hit.remote)
+                    Entry(
+                        hit.package.namespace,
+                        hit.package.name,
+                        hit.package.latest_version,
+                        hit.remote,
+                        kind=hit.package.kind,
+                    )
                 )
             available.sort(key=lambda e: (e.namespace, e.name))
 

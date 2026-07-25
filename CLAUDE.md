@@ -88,8 +88,10 @@ verification (`whoami_api.py`, D40). `common/` (`scripticus_common`) holds the
 D3/D27 content hash (`treehash.py`), semver ordering (`semver.py`), the
 version-spec grammar plus the reusable version-window primitive
 (`version_spec.py`; grammar documented in ARCHITECTURE.md, primitive serving
-D42/D43), and the `namespace/name` glob primitive (`identity_glob.py`, D50 —
-one `fnmatch` rule both sides of `list` use). The manifest's tool-name charset
+D42/D43), the `namespace/name` glob primitive (`identity_glob.py`, D50 —
+one `fnmatch` rule both sides of `list` use), and the snippet filename→variant
+rule (`snippet_variants.py`, D58 — one derivation of `src/<name>.<ext>` that
+publish and install must agree on). The manifest's tool-name charset
 validation lives with the manifest in `schema/` (D44). Each package's charter
 is its admission rule: `schema` admits a declarative shape (defines what a
 package is or how client and server communicate, D29); `common` admits a pure,
@@ -137,7 +139,21 @@ presence check, `{packages}` substitution, platform-shell run; refuses when
 a required tool is missing and no installer is configured, with a
 `--skip-tools` escape). With `search`, `yank`, and the `config` command group
 (D56) in, every planned v1 client command plus the one post-v1 config command
-is implemented — the client surface is complete. A
+is implemented — the client surface is complete. **Snippets (D58) have since
+landed**, the second post-v1 feature and the first new *package kind*: a
+`[snippet.<name>]` package holding paste-me boilerplate as flat
+`src/<name>.<ext>` files, with no package `language` (each variant's language
+is its extension, a pure label — so snippets reach C++/Rust/Go with no
+`LANGUAGES` growth) and an optional `[platforms]` defaulting to the `any` tag.
+`snip <name>.<ext>` prints one to stdout verbatim (`snippets.py`, exposed both
+as a `snip` console script and `scripticus snip`), with `-c/--copy` teeing to
+the platform clipboard (`clipboard.py`) and an ambiguous token *listing* its
+qualified candidates on stderr rather than picking a winner — no shims, no
+ownership state, no `use` involvement. The variant languages are never
+authored: `common`'s `snippet_variants.py` derives them from the tree, on the
+server at publish (into `db.Snippet`, which is what makes `search --language`
+and snippet-name matching work) and on the client at install (into the
+lockfile, which is what `snip` reads). `new --snippet` scaffolds. A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
 registry bundle: a Caddy reverse-proxy front (`proxy/Caddyfile`, D45)
 presenting one user-facing URL over the index service and Gitea. The design
@@ -250,8 +266,9 @@ push `server-vX.Y.0` and `client-vX.Y.0` together.
   (CLI usage, manifest format, server setup).
 - [doc/VISION.md](doc/VISION.md) — two-paragraph purpose statement.
 - [doc/ROADMAP.md](doc/ROADMAP.md) — the forward-looking roadmap: unscheduled
-  post-v1 work (library scripts D57, snippets D58, the "widening beyond a single
-  org" items, and the one carried-over v1 item). The shipped v1.0.0 checklist is
+  post-v1 work (library scripts D57, the "widening beyond a single org" items,
+  and the one carried-over v1 item). Snippets (D58) shipped, so their section
+  is now just a pointer at D58/ARCHITECTURE. The shipped v1.0.0 checklist is
   archived at
   [doc/archive/ROADMAP-v1.0.0.md](doc/archive/ROADMAP-v1.0.0.md).
 - [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) — components, data flows, index

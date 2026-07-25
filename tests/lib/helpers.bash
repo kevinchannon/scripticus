@@ -48,6 +48,43 @@ author_and_publish() {
         scripticus publish "builds/$name-$version"
 }
 
+# Author + publish a snippet package (D58): one [snippet.<name>] section per
+# distinct name, and a src/<name>.<ext> file per variant carrying its own
+# recognisable body. No language, no platforms. Usage:
+#   author_and_publish_snippets <name> <version> <file> <body> [<file> <body> ...]
+# e.g. author_and_publish_snippets boiler 0.1.0 args.sh '# sh args' args.py '# py args'
+author_and_publish_snippets() {
+    local name="$1" version="$2"
+    shift 2
+    local manifest="$name/meta.toml"
+    mkdir -p "$name/src"
+    {
+        printf '[package]\n'
+        printf 'namespace = "%s"\n' "$SCRIPTICUS_E2E_NAMESPACE"
+        printf 'name = "%s"\n' "$name"
+        printf 'version = "%s"\n' "$version"
+        printf 'description = "e2e snippet fixture"\n'
+    } > "$manifest"
+    local declared=""
+    while [ "$#" -gt 0 ]; do
+        local file="$1" body="$2"
+        shift 2
+        printf '%s\n' "$body" > "$name/src/$file"
+        local snippet="${file%.*}"
+        case " $declared " in
+            *" $snippet "*) ;;
+            *)
+                printf '\n[snippet.%s]\ndescription = "%s boilerplate"\n' \
+                    "$snippet" "$snippet" >> "$manifest"
+                declared="$declared $snippet"
+                ;;
+        esac
+    done
+    scripticus pack "$name" -o builds
+    SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_TOKEN" \
+        scripticus publish "builds/$name-$version"
+}
+
 # Author + publish a bash package with an explicit [commands] table, one
 # command per (name, output) pair, each printing its output so tests can tell
 # which shim ran. Usage:

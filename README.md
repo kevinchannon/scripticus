@@ -11,6 +11,8 @@ copying them around from wikis, chat, and assorted git repos.
   Linux/macOS/Windows variants; the client installs the right one.
 - **Multi-file, multi-command**: a package is a directory and can expose
   several commands.
+- **Snippets too**: distribute boilerplate that is meant to be pasted, not
+  run — `snip args.sh` prints it, in whichever language you wrote it in.
 - **Content-addressed**: every artifact is identified by the hash of its
   contents and verified on install.
 - **Self-hostable in one command**: the server ships as a Docker Compose

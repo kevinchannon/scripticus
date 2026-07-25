@@ -37,6 +37,13 @@ class PackageSummary(BaseModel):
     name: str
     description: str = ""
     latest_version: str
+    # What the package provides, so a hit is not silently mistaken for
+    # something runnable: "command" or "snippet" (D58). Defaulted, so an older
+    # index that predates snippets still validates.
+    kind: str = "command"
+    # A snippet package's snippets, each as "name.ext" — the exact token `snip`
+    # takes, so a search result is directly usable. Empty for other kinds.
+    snippets: list[str] = Field(default_factory=list)
 
 
 class SearchResults(BaseModel):

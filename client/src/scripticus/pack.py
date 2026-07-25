@@ -4,7 +4,13 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from scripticus_schema.manifest import FORMAT_GROUPS, Manifest, load_manifest
+from scripticus_schema.manifest import (
+    ANY_PLATFORM,
+    FORMAT_GROUPS,
+    Manifest,
+    language_tag,
+    load_manifest,
+)
 
 
 class PackError(Exception):
@@ -23,19 +29,27 @@ def archive_filenames(manifest: Manifest) -> list[str]:
     are joined with dots (in canonical order). One filename per format group
     the package targets. The filename is human-legible redundancy only — the
     manifest inside the archive is the source of truth.
+
+    A package that declares no platforms (only a snippet package may, D58)
+    takes the ``any`` platform tag in every group's filename — it applies
+    everywhere, so it still packs once per format group and each OS gets its
+    native container (D26).
     """
     package = manifest.package
     name = package.name.replace("-", "_")
     version = package.version.replace("-", "_")
-    os_list = manifest.platforms.os
+    language = language_tag(manifest)
+    os_list = manifest.platforms.os if manifest.platforms else None
     filenames = []
     for extension, group in FORMAT_GROUPS:
-        targets = [os_name for os_name in group if os_name in os_list]
-        if targets:
+        if os_list is None:
+            platform_tag = ANY_PLATFORM
+        else:
+            targets = [os_name for os_name in group if os_name in os_list]
+            if not targets:
+                continue
             platform_tag = ".".join(targets)
-            filenames.append(
-                f"{name}-{version}-{platform_tag}-{package.language}.{extension}"
-            )
+        filenames.append(f"{name}-{version}-{platform_tag}-{language}.{extension}")
     return filenames
 
 

@@ -32,7 +32,15 @@ from pathlib import Path
 
 from scripticus_common.semver import semver_key
 from scripticus_common.treehash import tree_hash
-from scripticus_schema.manifest import LANGUAGES, Manifest, commands_of, load_manifest
+from scripticus_schema.manifest import (
+    LANGUAGES,
+    Manifest,
+    commands_of,
+    language_tag,
+    load_manifest,
+    snippet_variants,
+    target_platforms,
+)
 
 
 class InstallError(Exception):
@@ -145,6 +153,9 @@ class Transaction:
     action: str  # install | upgrade | downgrade | reinstall | already-installed
     installed_version: str | None
     commands: dict[str, str]
+    # Snippet name -> its sorted extensions, derived from the staged tree
+    # (D58). Empty for every kind but a snippet package.
+    snippets: dict[str, list[str]] = field(default_factory=dict)
     required_tools: list[Tool] = field(default_factory=list)
     optional_tools: list[Tool] = field(default_factory=list)
     conflicts: list[Conflict] = field(default_factory=list)
@@ -188,7 +199,7 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
         package_root = _extract_archive(archive, staging)
         manifest = load_manifest(package_root)  # raises ManifestError
 
-        os_list = manifest.platforms.os
+        os_list = target_platforms(manifest)
         machine = current_os()
         if machine not in os_list:
             supported = ", ".join(os_list)
@@ -239,6 +250,7 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
             action=action,
             installed_version=installed_version,
             commands=commands,
+            snippets=snippet_variants(manifest, package_root),
             required_tools=required_tools,
             optional_tools=optional_tools,
             conflicts=conflicts,
@@ -288,6 +300,7 @@ def install_into_lock(
     version: str,
     content_hash: str,
     commands: dict[str, str],
+    snippets: dict[str, list[str]],
     direct: bool,
     provenance: dict,
     dependencies: dict,
@@ -300,6 +313,12 @@ def install_into_lock(
 
     Shared by the local (`install -f`) and remote install paths, so both get
     identical on-disk and lockfile behaviour.
+
+    A snippet package has no commands, so every shim branch here is a no-op for
+    it: it lands as a tree plus a lockfile entry recording its snippets, and
+    `snip` reads it from there (D58). Nothing records ownership of a snippet
+    name — an ambiguous one lists rather than resolving to a winner — so
+    installing a snippet package can never disturb another.
     """
     install_dir = home / "pkgs" / namespace / name / version
     if install_dir.exists():
@@ -343,6 +362,7 @@ def install_into_lock(
             "language": language,
             "content_hash": content_hash,
             "commands": sorted(commands),
+            "snippets": {name: list(snippets[name]) for name in sorted(snippets)},
             "shims": sorted(owned),
             "direct": direct,
             "provenance": provenance,
@@ -363,12 +383,13 @@ def apply_install(transaction: Transaction, home: Path) -> None:
         home,
         bin_dir,
         transaction.package_root,
-        package.language,
+        language_tag(transaction.manifest),
         package.namespace,
         package.name,
         package.version,
         transaction.content_hash,
         transaction.commands,
+        transaction.snippets,
         direct=True,
         provenance={"type": "local", "source": str(transaction.source.resolve())},
         # Local installs are dependency-free: resolve_dependencies rejects any

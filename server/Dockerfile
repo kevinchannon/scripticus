@@ -4,12 +4,16 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
 
 WORKDIR /src
 COPY . .
-# The image vendors the workspace schema wheel: the exact code this server
-# revision was built and tested against, so image builds never wait on a
-# schema PyPI release. The published-artifact pin (D29) still governs PyPI
-# installs; within one image the pair is consistent by construction, so
-# the pin is dropped inside this build stage only.
+# The image vendors the workspace shared wheels — schema and common (D51) —
+# so it carries the exact code this server revision was built and tested
+# against and image builds never wait on a PyPI release of either. The
+# published-artifact pins (D29/D51) still govern PyPI installs; within one
+# image the set is consistent by construction, so the pins are dropped inside
+# this build stage only.
 RUN sed -i 's/"scripticus-schema[^"]*"/"scripticus-schema"/' server/pyproject.toml \
+    && sed -i 's/"scripticus-common[^"]*"/"scripticus-common"/' server/pyproject.toml \
+    && sed -i 's/"scripticus-common[^"]*"/"scripticus-common"/' schema/pyproject.toml \
+    && uv build --package scripticus-common --wheel --out-dir /wheels \
     && uv build --package scripticus-schema --wheel --out-dir /wheels \
     && uv build --package scripticus-server --wheel --out-dir /wheels
 

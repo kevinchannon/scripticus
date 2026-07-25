@@ -1,4 +1,5 @@
 import shutil
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -62,6 +63,7 @@ from scripticus.publish import (
     publish_archives,
     resolve_remote,
 )
+from scripticus import clipboard, snippets
 from scripticus.listing import Entry, build_listing
 from scripticus.search import SearchError, search_remotes
 from scripticus.uninstall import (
@@ -82,6 +84,10 @@ from scripticus.yank import (
 
 app = typer.Typer(no_args_is_help=True)
 console = Console()
+# `snip` writes the snippet itself to stdout, so everything *about* the read —
+# errors, the ambiguity listing, the no-clipboard warning — goes to stderr, and
+# `snip trap.sh >> script.sh` can never capture a diagnostic (D58).
+err_console = Console(stderr=True)
 
 
 def _print_version(value: bool) -> None:
@@ -152,14 +158,15 @@ def _validate_namespace(value: str) -> str:
 
 @app.command()
 def new(
-    language: str = typer.Argument(
-        ...,
-        callback=_validate_language,
-        help="Language of the new package (bash, powershell, python).",
+    language: Optional[str] = typer.Argument(
+        None,
+        metavar="LANGUAGE",
+        help="Language of the new package (bash, powershell, python)."
+        " Omitted for --snippet, which has no package language.",
     ),
-    name: str = typer.Argument(
-        ...,
-        callback=_validate_package_name,
+    name: Optional[str] = typer.Argument(
+        None,
+        metavar="NAME",
         help="Package name (kebab-case).",
     ),
     namespace: str = typer.Option(
@@ -169,11 +176,55 @@ def new(
         callback=_validate_namespace,
         help="Publishing namespace (a Gitea user or organisation).",
     ),
+    snippet: bool = typer.Option(
+        False,
+        "--snippet",
+        help="Scaffold a snippet package (boilerplate to paste) instead of a"
+        " command package.",
+    ),
+    extension: str = typer.Option(
+        "sh",
+        "--ext",
+        help="With --snippet: the first snippet file's extension, which is"
+        " also its language label.",
+    ),
 ) -> None:
     """Scaffold a new package directory."""
+    # A snippet package has no language, so its single positional is the name
+    # (D58). Validated here rather than in argument callbacks, which cannot see
+    # whether --snippet was given.
+    if snippet and name is None:
+        language, name = None, language
+    if name is None:
+        # One positional and no --snippet: the usual slip is a forgotten
+        # LANGUAGE, so name both possibilities rather than guessing which.
+        console.print(
+            "[red]error:[/red] missing LANGUAGE or NAME — write"
+            " 'scripticus new <language> <name> -n <namespace>',"
+            " or 'scripticus new --snippet <name> -n <namespace>'"
+        )
+        raise typer.Exit(code=1)
+    _validate_package_name(name)
+    if snippet:
+        if language is not None:
+            console.print(
+                "[red]error:[/red] a snippet package has no language"
+                " — its variants take theirs from their file extensions"
+                f" (use --ext to scaffold '{name}.{language}')"
+            )
+            raise typer.Exit(code=1)
+        if not extension.isalnum():
+            console.print(f"[red]error:[/red] '{extension}' is not a file extension")
+            raise typer.Exit(code=1)
+    else:
+        _validate_language(language)
+
     cwd = Path.cwd()
     try:
-        created = scaffold.scaffold_package(language, name, namespace, cwd)
+        if snippet:
+            created = scaffold.scaffold_snippet_package(name, namespace, extension, cwd)
+        else:
+            created = scaffold.scaffold_package(language, name, namespace, cwd)
     except scaffold.ScaffoldError as exc:
         console.print(f"[red]error:[/red] {escape(str(exc))}")
         raise typer.Exit(code=1) from exc
@@ -734,10 +785,16 @@ def search(
 
     for hit in outcome.hits:
         pkg = hit.package
+        # A snippet package provides nothing runnable, so say what it does
+        # provide: the tokens `snip` takes (D58).
+        description = pkg.description or "—"
+        if pkg.kind == "snippet":
+            provides = ", ".join(pkg.snippets) if pkg.snippets else "no snippets"
+            description = f"{description}\n[dim]snippets: {escape(provides)}[/dim]"
         row = [
             f"{pkg.namespace}/{pkg.name}",
             pkg.latest_version,
-            pkg.description or "—",
+            description,
         ]
         if show_remote:
             row.append(hit.remote)
@@ -749,13 +806,20 @@ def search(
 def _print_listing_section(title: str, entries: "list[Entry]", show_remote: bool) -> None:
     console.print(f"[bold]{title}[/bold]")
     multi = show_remote and len({e.remote for e in entries}) > 1
+    # Only worth a column when there is something other than a command here:
+    # an all-command listing reads exactly as it always has.
+    kinds = any(e.kind != "command" for e in entries)
     table = Table(show_header=True, header_style="bold")
     table.add_column("Package")
     table.add_column("Version")
+    if kinds:
+        table.add_column("Kind")
     if multi:
         table.add_column("Remote")
     for entry in entries:
         row = [entry.identity, entry.version]
+        if kinds:
+            row.append(entry.kind)
         if multi:
             row.append(entry.remote or "")
         table.add_row(*row)
@@ -1072,6 +1136,59 @@ def use(
         f"'{shim}' now points at [bold]{candidate.package_id}[/bold]"
         f" {candidate.version}{was}"
     )
+
+
+@app.command()
+def snip(
+    reference: str = typer.Argument(
+        ...,
+        metavar="SNIPPET",
+        help="The snippet to print: 'args.sh', 'args' when unambiguous, or"
+        " 'namespace/package:args.sh' to name one exactly.",
+    ),
+    copy: bool = typer.Option(
+        False,
+        "-c",
+        "--copy",
+        help="Also put the snippet on the clipboard (it is printed either way).",
+    ),
+) -> None:
+    """Print an installed snippet to paste into your own script.
+
+    The snippet goes to stdout verbatim, so the shell composes it:
+    'snip trap.sh >> script.sh'. Nothing is inserted into a file for you.
+    """
+    home = scripticus_home()
+    lock = read_lockfile(home)
+
+    try:
+        candidate = snippets.resolve(lock, home, reference)
+        text = snippets.read(candidate)
+    except snippets.SnippetError as exc:
+        err_console.print(f"[red]error:[/red] {escape(str(exc))}")
+        raise typer.Exit(code=1) from exc
+
+    # Written raw, not through Rich: this is source about to be pasted, so it
+    # must not be highlighted, wrapped, or otherwise reformatted. The newline
+    # is guaranteed so appending to a script cannot join two lines.
+    sys.stdout.write(text if text.endswith("\n") else text + "\n")
+
+    if copy:
+        # The snippet is already out; the clipboard is a bonus that never
+        # costs you the read (D58).
+        tool = clipboard.copy(text)
+        if tool is None:
+            err_console.print(
+                f"[yellow]warning:[/yellow] not copied — {clipboard.unavailable_reason()}"
+            )
+
+
+# `snip` is worth its own name in PATH: it competes with retyping the
+# boilerplate, and 'scripticus snip args.sh' loses that race (D58). One
+# implementation, reachable as both `snip` and `scripticus snip` — a Typer app
+# with a single command invokes it directly, with no sub-command to name.
+snip_app = typer.Typer(add_completion=False)
+snip_app.command()(snip)
 
 
 # --- config: manage ~/.scripticus/config.toml (D56) ------------------------

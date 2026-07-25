@@ -1846,12 +1846,21 @@ lists the variants; `ns/name:args.cpp` is the escape hatch) — no in-file
 insertion, since `>>`/`:r` compose — with an opt-in `-c`/`--copy` that tees the
 snippet to the clipboard while still printing (a platform-tool-hiding tee a plain
 pipe cannot do; it always prints, and warns rather than fails where no clipboard
-exists). Folding the language into the name token leaves one
-collision axis (namespace), reusing D38 last-install-wins + `use`. The language
+exists). Folding the language into the name token leaves one collision axis
+(namespace), and there it **always lists, never guesses** — no ownership state,
+no last-install-wins, no `use`: a read is cheap and side-effect-free, so an
+ambiguous token prints its qualified candidates to stderr and exits nonzero,
+exactly as a bare `snip args` with several variants does. The language
 enumeration is **derived, not authored**: a pure `common` filename→label rule
 (D51) projected server-side at publish into the index (D21 — the manifest stays
-verbatim intent), so `search` matches on language. `new --snippet` scaffolds.
-Post-v1, unscheduled; full shape in the roadmap.
+verbatim intent), so `search` matches on language; the label is the raw
+extension (`py`, `cpp`), the same token typed at the CLI. Having no language,
+a snippet package makes `[package] language` **optional** (carrying the
+`snippet` sentinel into the archive tag and index) and `[platforms]` optional
+too — omitted means `any`, wheel-style, still emitting both format groups so
+each OS gets its native container (D26 unchanged). `snip` ships as its own
+console script beside `scripticus snip`, since it must beat retyping.
+`new --snippet` scaffolds. Post-v1, unscheduled; full shape in the roadmap.
 
 **Reason**: The boilerplate *is* the deliverable — arg-parsing and traps are
 reusable in *shape* but per-script in *content* (which flags, which signals,
@@ -1879,9 +1888,17 @@ stays clean.
   can never run as commands, with no `LANGUAGES`-table growth.
 - Good: derived enumeration keeps the author out of a bookkeeping loop and the
   manifest verbatim, while still letting language influence search.
+- Good: list-never-guess needs no ownership record at all — with no shim file to
+  serve as one, D38 reuse would have meant new lockfile bookkeeping, a `use`
+  extension, and a D28-style uninstall picker, for a token that is only read.
 - Bad: a third exclusive package kind adds a manifest-shape branch (`language`
-  present for command/library, absent for snippet) and a new index projection.
+  and `platforms` required for command/library, optional for snippet) and a new
+  index projection.
 - Bad: per D14 nothing verifies a snippet is valid in its claimed language; a
   broken paste surfaces only in the user's own script.
-- Bad: open items deferred to implementation — per-variant description override,
-  further CLI-prefix terseness, extension aliasing, and `list` surfacing.
+- Bad: a second console script (`snip`) puts a name in the user's PATH that the
+  shim system does not own, and one command reachable two ways.
+- Bad: one open item stays deferred — how snippet packages surface in `list`.
+  Settled against the original deferrals: descriptions are shared across
+  variants (no per-variant override), extensions are WYSIWYG (no aliasing),
+  and terseness is bought with the console script rather than a shell alias.

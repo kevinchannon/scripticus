@@ -39,7 +39,10 @@ from scripticus_schema.manifest import (
     ManifestError,
     PackageMeta,
     commands_of,
+    language_tag,
     load_manifest,
+    snippet_variants,
+    target_platforms,
 )
 from scripticus_schema.publish_api import PublishedArtifact, PublishResult
 from scripticus_server import db
@@ -94,13 +97,20 @@ def _extract_archive(archive: Path, destination: Path, label: str) -> Path:
 
 
 def _artifact_platforms(manifest: Manifest, archive_format: str, label: str) -> list[str]:
+    """The OSes this archive serves.
+
+    A package declaring no platforms (the ``any`` case, D58) serves every OS in
+    the format group, so the stored projection is the expanded list and no
+    platform query anywhere needs an ``any`` special case.
+    """
     group = dict(FORMAT_GROUPS)[archive_format]
-    platforms = [os_name for os_name in group if os_name in manifest.platforms.os]
+    declared = target_platforms(manifest)
+    platforms = [os_name for os_name in group if os_name in declared]
     if not platforms:
         raise HTTPException(
             422,
             f"'{label}': a .{archive_format} archive carries {'/'.join(group)} targets,"
-            f" but the manifest declares platforms {manifest.platforms.os}",
+            f" but the manifest declares platforms {declared}",
         )
     return platforms
 
@@ -194,6 +204,10 @@ class _StagedArchive:
     manifest_text: str
     platforms: list[str]
     filename: str
+    # Snippet name -> extensions, derived from the extracted tree while it is
+    # still around (D58): the author lists no languages, so the index's variant
+    # list comes from the content, by the same shared rule the client uses.
+    snippets: dict[str, list[str]]
 
 
 def _stage_and_validate(archive: UploadFile, work_dir: Path) -> _StagedArchive:
@@ -225,6 +239,7 @@ def _stage_and_validate(archive: UploadFile, work_dir: Path) -> _StagedArchive:
         manifest_text=manifest_text,
         platforms=platforms,
         filename=filename,
+        snippets=snippet_variants(manifest, package_root),
     )
 
 
@@ -373,6 +388,14 @@ def publish(
                 version.tool_deps.append(db.ToolDep(name=tool, required=False))
             for command, script in sorted(commands_of(manifest).items()):
                 version.commands.append(db.Command(name=command, script_path=script))
+            for name, snippet in sorted((manifest.snippet or {}).items()):
+                version.snippets.append(
+                    db.Snippet(
+                        name=name,
+                        description=snippet.description,
+                        extensions=",".join(staged[0].snippets.get(name, [])),
+                    )
+                )
             db.ManifestBlob(package_version=version, toml=staged[0].manifest_text)
         else:
             version = existing
@@ -380,7 +403,7 @@ def publish(
             db.Artifact(
                 package_version=version,
                 platforms=",".join(s.platforms),
-                language=meta.language,
+                language=language_tag(manifest),
                 archive_format=s.archive_format,
                 content_hash=s.content_hash,
                 size=len(s.data),
@@ -412,7 +435,7 @@ def publish(
                 filename=s.filename,
                 archive_format=s.archive_format,
                 platforms=s.platforms,
-                language=meta.language,
+                language=language_tag(manifest),
                 size=len(s.data),
             )
             for s in staged

@@ -103,6 +103,7 @@ class PackageVersion(Base):
     dependencies: Mapped[list["Dependency"]] = relationship()
     tool_deps: Mapped[list["ToolDep"]] = relationship()
     commands: Mapped[list["Command"]] = relationship()
+    snippets: Mapped[list["Snippet"]] = relationship()
     manifest_blob: Mapped["ManifestBlob | None"] = relationship(
         back_populates="package_version"
     )
@@ -155,6 +156,28 @@ class Command(Base):
     package_version_id: Mapped[int] = mapped_column(ForeignKey("package_version.id"))
     name: Mapped[str]
     script_path: Mapped[str]
+
+
+class Snippet(Base):
+    """One snippet a version provides (D58).
+
+    ``name`` and ``description`` are the manifest's ``[snippet.<name>]``
+    section; ``extensions`` is *derived* from the package tree at publish — the
+    author never lists the languages, so this column is a projection of content
+    rather than of the manifest, but it is re-derivable from the archive all
+    the same (D21). Comma-joined, following Artifact.platforms.
+    """
+
+    __tablename__ = "snippet"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    package_version_id: Mapped[int] = mapped_column(ForeignKey("package_version.id"))
+    name: Mapped[str]
+    description: Mapped[str] = mapped_column(default="")
+    extensions: Mapped[str] = mapped_column(default="")
+
+    def extension_list(self) -> list[str]:
+        return self.extensions.split(",") if self.extensions else []
 
 
 class ManifestBlob(Base):

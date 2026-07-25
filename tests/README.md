@@ -70,6 +70,10 @@ defined in the repo-root [tasktree.yaml](../tasktree.yaml).
 - [`update_yank.bats`](update_yank.bats) — post-install version movement:
   `update` floating a package to a newer version, and `yank`/`--undo` moving a
   version out of and back into read-side resolution.
+- [`snippets.bats`](snippets.bats) — the snippet lifecycle (D58): author
+  multi-language boilerplate → publish → find it by snippet name and language →
+  install (no shims) → `snip` on stdout via both the standalone binary and
+  `scripticus snip`, plus the listing an ambiguous token gets.
 - [`commands.bats`](commands.bats) — command-shim claims: a multi-command
   package exposing a shim per command (and the guaranteed `<ns>.<pkg>.<cmd>`
   form), `uninstall` removing a package's shims, and `use` re-pointing a

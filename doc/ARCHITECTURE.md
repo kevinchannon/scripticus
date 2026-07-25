@@ -86,6 +86,31 @@ Entrypoints: without `[commands]`, `src/main.<ext>` is the sole entrypoint
 and the command name is the package name; with `[commands]`, every entry gets
 a shim.
 
+### Package kinds
+
+A package declares what it provides, and the kinds are mutually exclusive:
+
+- **Command package** (the default) — `[commands]`, or the implicit
+  `src/main.<ext>`. Requires `language` and `[platforms]`.
+- **Snippet package** (D58) — `[snippet.<name>]` sections carrying only a
+  description, with the code in flat `src/<name>.<ext>` files. A snippet is
+  printed for the user to paste, never run, so the package has **no
+  `language`** (each variant's language is its file extension, a pure label
+  needing no interpreter and no `LANGUAGES` entry) and usually no
+  `[platforms]`. Where the surrounding machinery needs those strings it gets
+  the `snippet` language sentinel and the `any` platform tag — the latter
+  wheel-style, still packing to both format groups (D26) so every OS gets its
+  native container.
+
+A snippet's language *variants* are never authored: they are derived from the
+tree by a shared `common` rule (D51), by the server at publish (into the
+`snippet` index table, which is what makes `search --language` work) and by
+the client at install (into the lockfile, which is what `snip` reads). The
+manifest stays verbatim authored intent — name and description — and the
+variant list is a re-derivable projection (D21). Packing checks the two agree
+in both directions: a declared snippet with no file, or a file with no
+section, is an error.
+
 Scripticus performs **no correctness verification** of manifest claims
 (platforms, tools) at any point. This is an explicit non-goal: it is
 undecidable in general, and a partial check gives false confidence.
@@ -272,6 +297,9 @@ namespace          — mirrors a Gitea user/org; a cached reference/FK anchor
               ├── dependency  — target package + semver range constraint
               ├── tool_dep    — (name, required|optional)
               ├── command     — (command name → script path)
+              ├── snippet     — (snippet name, description, extensions):
+              │                 the extensions derived from the tree at
+              │                 publish, never authored (D58)
               └── manifest_blob — the verbatim manifest as published
 ```
 
@@ -348,6 +376,18 @@ Everything lives under `~/.scripticus/`:
   fully-qualified shim, so any shim reveals its true owner in one hop, and
   a shim name's dot count identifies its tier (the identifier character
   sets all exclude `.`).
+
+A snippet package touches none of this (D58): it installs as a tree plus a
+lockfile entry recording its derived `{snippet: [extensions]}` map, with no
+shims, no PATH, and no staging — `snip` is a pure read of a file at a
+lockfile-known location. Nothing records who "owns" a snippet name either:
+where two installed packages provide the same `name.ext`, or a bare name has
+several variants, `snip` lists the qualified candidates on stderr and exits
+non-zero rather than resolving to a winner. That is the deliberate difference
+from the shim tiers' last-install-wins — a shim must resolve to exactly one
+executable, whereas a read is cheap and side-effect-free, so listing costs a
+keystroke and needs no ownership bookkeeping, no `use` extension, and no D28
+uninstall picker.
 
 ### Install transaction semantics
 

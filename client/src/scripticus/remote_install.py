@@ -41,7 +41,12 @@ from scripticus.install import (
 from scripticus_common.semver import semver_key
 from scripticus_common.treehash import tree_hash
 from scripticus_common.version_spec import VersionSpecError, parse as parse_spec
-from scripticus_schema.manifest import Manifest, load_manifest
+from scripticus_schema.manifest import (
+    Manifest,
+    language_tag,
+    load_manifest,
+    snippet_variants,
+)
 from scripticus_schema.resolve_api import (
     InstalledPackage,
     ResolvedPackage,
@@ -399,12 +404,13 @@ def apply_remote(plan: RemotePlan, staged: list[Staged], home: Path) -> None:
             home,
             bin_dir,
             entity.package_root,
-            entity.manifest.package.language,
+            language_tag(entity.manifest),
             resolved.namespace,
             resolved.name,
             resolved.version,
             resolved.content_hash,
             dict(resolved.commands),
+            snippet_variants(entity.manifest, entity.package_root),
             direct=resolved.direct or bool(existing and existing.get("direct")),
             provenance=provenance,
             dependencies=dict(entity.manifest.dependencies.packages),

@@ -205,6 +205,54 @@ $ scripticus use tools/old-backup backup-rotate        # the bare shim
 $ scripticus use infra/other-tool infra.backup-rotate  # a namespaced shim
 ```
 
+### Snippets
+
+Some code is not worth running — it is worth *pasting*. Argument parsing and
+signal traps are reusable in shape but different in every script, so a library
+cannot serve them: you want the text, to read and edit. That is a **snippet**,
+and `snip` prints one:
+
+```console
+$ snip args.sh              # the snippet, on stdout
+$ snip trap.sh >> deploy.sh # composition is the shell's job
+$ snip args -c              # print it and put it on the clipboard
+```
+
+`snip` is installed alongside `scripticus` (and is also available as
+`scripticus snip`). The everyday form is `<name>.<ext>` — the extension picks
+the language, because one snippet often exists in several:
+
+```console
+$ snip args.py
+$ snip args.cpp
+```
+
+A bare `snip args` works when there is only one variant. When there is more
+than one — several languages, or two installed packages providing the same
+one — `snip` **lists the candidates rather than guessing**, and you pick with
+the fully namespaced form:
+
+```console
+$ snip args
+error: 'args' is ambiguous; it could be:
+  infra/boilerplate:args.py
+  infra/boilerplate:args.sh
+
+$ snip infra/boilerplate:args.sh
+```
+
+Everything except the snippet itself goes to stderr, so `snip x > file` either
+gets the snippet or gets nothing. `-c`/`--copy` still prints the snippet, and
+where there is no clipboard (over SSH, say) it warns rather than failing.
+
+Snippets are found with `search` like anything else — the search matches the
+snippet's name and description, and `--language` matches its file extension:
+
+```console
+$ scripticus search trap
+$ scripticus search --language python args
+```
+
 ## Authoring packages
 
 ### Scaffolding
@@ -281,6 +329,49 @@ Entrypoint rules:
 
 Versions must be strict [semver](https://semver.org); publishes with
 non-conforming versions are rejected.
+
+### Authoring snippets
+
+A snippet package declares `[snippet.<name>]` sections instead of `[commands]`
+— a package is one kind or the other. It has **no language and no platforms**:
+a snippet is never run, so its language is just the extension of the file it
+lives in, and one snippet can exist in as many languages as you write it in.
+
+```console
+$ scripticus new --snippet argparse -n infra          # src/argparse.sh
+$ scripticus new --snippet argparse -n infra --ext py # src/argparse.py
+```
+
+```toml
+[package]
+namespace = "infra"
+name = "boilerplate"
+version = "1.0.0"
+description = "The bits nobody remembers exactly"
+
+[snippet.args]
+description = "Argument parsing"
+
+[snippet.trap]
+description = "Cleanup on exit"
+```
+
+```
+boilerplate/
+├── meta.toml
+└── src/
+    ├── args.sh      # snip args.sh
+    ├── args.py      # snip args.py
+    └── trap.sh      # snip trap.sh
+```
+
+The code lives in flat `src/<name>.<ext>` files, so shellcheck, syntax
+highlighting, and `bash -n` all work on real source rather than strings in
+TOML. **You never list the languages**: they are read off the filenames, at
+publish for the index and at install for `snip`. Add `src/args.rb` and
+`snip args.rb` works — including for languages Scripticus cannot run as
+commands (C++, Rust, Go). The two must agree, though: a declared snippet with
+no file, or a file with no section, is a packing error.
 
 > **Manifest accuracy is your responsibility.** Scripticus performs no
 > correctness checks on the declared platforms or tool dependencies — neither
