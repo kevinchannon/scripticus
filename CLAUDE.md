@@ -227,9 +227,10 @@ release workflow then reads that annotation back as the GitHub release body
 tag, and the release page all say the same thing. The three halves are
 `scripts/changelog section <pkg>` (preview what a tag message would say),
 `release <pkg> <ver>` (roll it), and `tag-notes <tag>` (read it back off the
-tag), unit-tested in [tests/test_changelog.py](tests/test_changelog.py). An
-empty block warns at both ends and degrades to a bare subject line and
-generated-only release notes, rather than blocking the release.
+tag) — each runnable by hand, which is how the release tooling is checked; it
+carries no test suite of its own. An empty block warns at both ends and degrades
+to a bare subject line and generated-only release notes, rather than blocking
+the release.
 
 **Release runbook** (only tag the packages that actually changed since their
 last tag — `git diff --name-only <pkg>-vLAST..HEAD -- <pkg>/src`):
