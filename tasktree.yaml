@@ -255,10 +255,12 @@ tasks:
       # Reverse order so the released sections end up newest-first in the
       # tier order common -> schema -> server -> client. The notes were already
       # captured above, so emptying the Unreleased blocks here is safe.
+      rolled=0
       if [ -f "$changelog" ]; then
         for c in client server schema common; do
           is_releasing "$c" || continue
           [ -n "${notes[$c]}" ] || continue
+          rolled=1
           if [ "$DRY" = "1" ]; then
             echo "  [dry-run] changelog -> tag message for ${c}-v${newver[$c]}:"
             printf '%s\n' "${notes[$c]}" | sed 's/^/      | /'
@@ -267,9 +269,13 @@ tasks:
             echo "  changelog: ${c} ${newver[$c]} section written"
           fi
         done
-        [ "$DRY" = "1" ] || case " $edited " in
-          *" $changelog "*) : ;; *) edited="$edited $changelog" ;;
-        esac
+        # In a dry run the file is untouched, but it still belongs in the
+        # "would commit" list — `git checkout` on it is then a no-op.
+        if [ "$rolled" = "1" ]; then
+          case " $edited " in
+            *" $changelog "*) : ;; *) edited="$edited $changelog" ;;
+          esac
+        fi
       fi
 
       # --- Commit + push the changelog + pin changes -------------------------
