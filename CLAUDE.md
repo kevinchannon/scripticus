@@ -182,7 +182,8 @@ Tree recipe [tasktree.yaml](tasktree.yaml) — when asked to cut a release, use
 `tt release` rather than performing the steps by hand. Pass a bump per package
 (`none|patch|minor|major`), e.g. `tt release schema=minor server=minor
 client=patch`; it derives each next version from the git tags, rewrites the
-internal pin windows, commits and pushes them, then pushes the release tags
+internal pin windows, rolls each released package's `## Unreleased` changelog
+block into a dated section, commits and pushes them, then pushes the release tags
 tier by tier (common → schema → server/client), waiting after each tier for the
 workflow to go green and the package(s) to appear on PyPI before the next. Add
 `dry_run=yes` to preview the plan without touching anything (always do this
@@ -214,14 +215,28 @@ a breaking change to a shared package (e.g. a wire-shape change in `schema`)
 must cross a minor and each consumer must move its pin window to match, or the
 consumer would silently accept an incompatible release.
 
+Release notes live in [CHANGELOG.md](CHANGELOG.md), grouped by package rather
+than by a project-wide version (D59): pending bullets go under `## Unreleased` /
+`### <package>` as the change is made. Releasing a package moves that block into
+a `## <package> <version> — <date>` section and uses it as the body of the
+**annotated** release tag, so `git show <pkg>-vX.Y.Z` explains the release. The
+two halves are `scripts/changelog section <pkg>` (preview what a tag message
+would say) and `scripts/changelog release <pkg> <ver>` (roll it), unit-tested in
+[tests/test_changelog.py](tests/test_changelog.py). An empty block warns and
+falls back to a bare subject line rather than blocking the release.
+
 **Release runbook** (only tag the packages that actually changed since their
 last tag — `git diff --name-only <pkg>-vLAST..HEAD -- <pkg>/src`):
 
-1. **Bump the pins in one commit, up front.** If a shared package's minor is
+1. **Bump the pins and roll the changelog in one commit, up front.** If a
+   shared package's minor is
    moving, edit every consumer's pin window to the new minor (e.g. bumping
    `schema` to `0.2.0` means `client`/`server` move to
    `scripticus-schema>=0.2.0,<0.3.0`). A shared package whose minor is *not*
-   moving needs no consumer edit. Push this commit to `main`.
+   moving needs no consumer edit. Capture each released package's changelog
+   block first (`scripts/changelog section <pkg>`) — you need it for the tag —
+   then roll it (`scripts/changelog release <pkg> <ver>`). Push this commit to
+   `main`.
 2. **Push tags in dependency order, waiting for each to land on PyPI before
    the next tier:** common → schema → client/server. The release job polls for
    its pins for only ~5 minutes (30×10s), so a dependent pushed too early — or
@@ -230,8 +245,9 @@ last tag — `git diff --name-only <pkg>-vLAST..HEAD -- <pkg>/src`):
    race. Tags within a tier (e.g. `server` and `client`) can go together.
 
 So for a change touching schema + server + client but not common: commit the
-`client`/`server` schema-pin bump → push `schema-vX.Y.0`, wait for it on PyPI →
-push `server-vX.Y.0` and `client-vX.Y.0` together.
+`client`/`server` schema-pin bump plus the rolled changelog sections → push
+`schema-vX.Y.0` (annotated, with the schema block as its message), wait for it
+on PyPI → push `server-vX.Y.0` and `client-vX.Y.0` together.
 
 ## Code layout
 
@@ -264,6 +280,9 @@ push `server-vX.Y.0` and `client-vX.Y.0` together.
 
 - [README.md](README.md) — user-facing description of the intended product
   (CLI usage, manifest format, server setup).
+- [CHANGELOG.md](CHANGELOG.md) — release notes, grouped by workspace package
+  (D59). Pending changes go under `## Unreleased` / `### <package>`; `tt
+  release` rolls them into a dated section and into the release tag's message.
 - [doc/VISION.md](doc/VISION.md) — two-paragraph purpose statement.
 - [doc/ROADMAP.md](doc/ROADMAP.md) — the forward-looking roadmap: unscheduled
   post-v1 work (library scripts D57, the "widening beyond a single org" items,

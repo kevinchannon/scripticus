@@ -149,6 +149,8 @@ tasks:
       declare -A bump=( [common]="$common" [schema]="$schema" \
                         [server]="$server" [client]="$client" )
       declare -A newver
+      declare -A notes
+      changelog="CHANGELOG.md"
 
       # --- Which packages are being released? --------------------------------
       releasing=""
@@ -195,12 +197,25 @@ tasks:
         echo "${ma}.${mi}.${pa}"
       }
 
+      # --- Changelog (D59) ---------------------------------------------------
+      # CHANGELOG.md is grouped by package: pending bullets live under
+      # '## Unreleased' / '### <package>'. A release lifts that block out to
+      # become the annotation of its tag, and rolls it into a released section.
+      # Both halves live in scripts/changelog, where they are unit-tested.
+
       echo "=== Release plan${dry_run:+ (dry run)} ==="
       for c in common schema server client; do
         if is_releasing "$c"; then
           newver[$c]="$(next_version "$c" "${bump[$c]}")"
-          printf '  %-7s %-6s %s -> %s\n' \
-            "$c" "${bump[$c]}" "$(last_version "$c" || true)" "${newver[$c]}"
+          notes[$c]="$(scripts/changelog section "$c")"
+          if [ -n "${notes[$c]}" ]; then
+            note_state="$(printf '%s\n' "${notes[$c]}" | wc -l | tr -d ' ') changelog lines"
+          else
+            note_state="NO changelog entries"
+          fi
+          printf '  %-7s %-6s %s -> %s  (%s)\n' \
+            "$c" "${bump[$c]}" "$(last_version "$c" || true)" "${newver[$c]}" \
+            "$note_state"
         fi
       done
       [ "$dry_run" = "yes" ] && DRY=1 || DRY=0
@@ -236,21 +251,43 @@ tasks:
         echo "      their next release will carry the new window."
       fi
 
-      # --- Commit + push the pin changes -------------------------------------
+      # --- Roll the changelog ------------------------------------------------
+      # Reverse order so the released sections end up newest-first in the
+      # tier order common -> schema -> server -> client. The notes were already
+      # captured above, so emptying the Unreleased blocks here is safe.
+      if [ -f "$changelog" ]; then
+        for c in client server schema common; do
+          is_releasing "$c" || continue
+          [ -n "${notes[$c]}" ] || continue
+          if [ "$DRY" = "1" ]; then
+            echo "  [dry-run] changelog -> tag message for ${c}-v${newver[$c]}:"
+            printf '%s\n' "${notes[$c]}" | sed 's/^/      | /'
+          else
+            scripts/changelog release "$c" "${newver[$c]}"
+            echo "  changelog: ${c} ${newver[$c]} section written"
+          fi
+        done
+        [ "$DRY" = "1" ] || case " $edited " in
+          *" $changelog "*) : ;; *) edited="$edited $changelog" ;;
+        esac
+      fi
+
+      # --- Commit + push the changelog + pin changes -------------------------
+      edited="$(echo $edited | xargs || true)"
       if [ -n "$edited" ]; then
         if [ "$DRY" = "1" ]; then
-          echo "  [dry-run] would commit + push pin changes; reverting edits"
+          echo "  [dry-run] would commit + push $edited; reverting edits"
           git checkout -- $edited
         else
           git add $edited
           summary=""
           for c in $releasing; do summary="${summary}${c}=${newver[$c]} "; done
-          git commit -q -m "Bump internal pins for release: ${summary%% }"
+          git commit -q -m "Release: ${summary%% }"
           git push
-          echo "  committed + pushed pin bumps"
+          echo "  committed + pushed changelog + pin bumps"
         fi
       else
-        echo "  no pin changes needed"
+        echo "  no changelog or pin changes to commit"
       fi
 
       # --- Push tags tier by tier, gating on green + PyPI --------------------
@@ -287,7 +324,15 @@ tasks:
           tag="${c}-v${newver[$c]}"
           tier_pkgs="$tier_pkgs $c"; tier_tags="$tier_tags $tag"
           [ "$DRY" = "1" ] && { echo "  [dry-run] would tag + push ${tag}"; continue; }
-          git tag -a "$tag" -m "$(pypi_name "$c") ${newver[$c]}"
+          # Annotated (never lightweight): subject is the release, body is the
+          # package's changelog section (D59).
+          if [ -n "${notes[$c]}" ]; then
+            git tag -a "$tag" -m "$(pypi_name "$c") ${newver[$c]}" -m "${notes[$c]}"
+          else
+            echo "  warning: no '### ${c}' entries under '## Unreleased' in ${changelog}"
+            echo "           tagging ${tag} with a bare subject line"
+            git tag -a "$tag" -m "$(pypi_name "$c") ${newver[$c]}"
+          fi
         done
         [ -z "$(echo $tier_tags | xargs || true)" ] && continue
         [ "$DRY" = "1" ] && continue

@@ -1902,3 +1902,41 @@ stays clean.
   Settled against the original deferrals: descriptions are shared across
   variants (no per-variant override), extensions are WYSIWYG (no aliasing),
   and terseness is bought with the console script rather than a shell alias.
+
+---
+
+## D59. One package-grouped CHANGELOG.md, released into annotated tag messages
+
+**Decision**: Keep a single root `CHANGELOG.md` grouped by *package* rather
+than by a project-wide version: pending bullets live under `## Unreleased` /
+`### <package>`. Releasing a package lifts its block out to become the body of
+its release tag's annotation and rolls it down into a
+`## <package> <version> — <date>` section, in the same commit that bumps the
+dependency pins. Release tags are annotated, never lightweight. The extraction
+and the roll live in `scripts/changelog` (`section` / `release`), which
+`tt release` drives.
+
+**Reason**: Each member releases on its own tag with its own version (D29/D51),
+so a Keep-a-Changelog file keyed by one version number has nowhere to put a
+`schema` release that ships without a `client` one; the package is the only
+heading that always exists. Deriving the tag message from that block means the
+release note is written once, at the time the change is made, and the tag —
+the thing the release workflow builds from and the thing `git show <tag>`
+lands on — carries it, so the history is legible without leaving git. Doing
+the roll in the pin-bump commit keeps it in the one commit a release already
+requires, and makes the tag point at a tree whose changelog already records
+the release.
+
+**Consequences**:
+- Good: `git show <pkg>-vX.Y.Z` explains the release; no separate release-notes
+  step, and nothing to keep in sync with the tag.
+- Good: a package with nothing pending still releases — an empty block warns
+  and falls back to the bare subject line rather than blocking.
+- Neutral: the changelog is a human summary, deliberately not derived from
+  commits; D14's no-verification stance applies — nothing checks it is
+  accurate or complete.
+- Bad: the file is a merge-conflict magnet in exactly the place several people
+  would edit at once (the `## Unreleased` blocks).
+- Bad: release history now lives in two places — the changelog's rolled
+  sections and the tags — that only agree because one is generated from the
+  other.

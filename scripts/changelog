@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# CHANGELOG.md surgery for the per-package release flow (D59).
+#
+# The changelog is grouped by workspace package, not by a project-wide version:
+# pending bullets live under '## Unreleased' / '### <package>'. Releasing a
+# package lifts its block out to become the annotation of its release tag, and
+# rolls it down into a '## <package> <version> — <date>' section.
+#
+#   scripts/changelog section client            # print the pending block
+#   scripts/changelog release client 0.6.1      # roll it into a released section
+#
+# `tt release` drives both (see tasktree.yaml); they are also useful by hand to
+# preview what a tag message would say. CHANGELOG_FILE overrides the target
+# file, which is what the tests use.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+file="${CHANGELOG_FILE:-${here}/CHANGELOG.md}"
+
+usage() {
+    echo "usage: $(basename "$0") section <package>" >&2
+    echo "       $(basename "$0") release <package> <version> [date]" >&2
+    exit 2
+}
+
+# The pending bullets for one package, with leading/trailing blanks trimmed.
+# Silent (exit 0, no output) when the file, the Unreleased heading, or the
+# package's block is missing or empty — "nothing to say" is not an error.
+section() {
+    local pkg="$1"
+    [ -f "$file" ] || return 0
+    awk -v pkg="$(printf '%s' "$pkg" | tr '[:upper:]' '[:lower:]')" '
+        /^## / { unrel = ($0 ~ /^##[ \t]+Unreleased[ \t]*$/); pkgsec = 0; next }
+        !unrel { next }
+        /^### / {
+            h = $0; sub(/^###[ \t]+/, "", h); gsub(/[ \t]+$/, "", h)
+            pkgsec = (tolower(h) == pkg); next
+        }
+        pkgsec { print }
+    ' "$file" \
+      | awk '
+            { line[n++] = $0 }
+            END {
+                s = 0; while (s < n && line[s] == "") s++
+                while (n > s && line[n-1] == "") n--
+                for (i = s; i < n; i++) print line[i]
+            }'
+}
+
+# Move the package's pending bullets into a new released section, inserted
+# immediately below the Unreleased block so releases read newest-first. The
+# '### <package>' heading stays behind, empty, ready for the next cycle. A
+# package with nothing pending leaves the file untouched.
+release() {
+    local pkg="$1" ver="$2" date="${3:-$(date +%Y-%m-%d)}" tmp
+    [ -f "$file" ] || { echo "error: no such file: $file" >&2; exit 1; }
+    [ -n "$(section "$pkg")" ] || return 0
+    tmp="$(mktemp)"
+    awk -v pkg="$(printf '%s' "$pkg" | tr '[:upper:]' '[:lower:]')" \
+        -v ver="$ver" -v date="$date" '
+        function emit(  i) {
+            if (nb == 0) return
+            printf "## %s %s — %s\n\n", pkg, ver, date
+            for (i = 0; i < nb; i++) print body[i]
+            print ""
+        }
+        /^## / {
+            if (unrel && !done) { emit(); done = 1 }
+            unrel = ($0 ~ /^##[ \t]+Unreleased[ \t]*$/); pkgsec = 0
+            print; next
+        }
+        unrel && /^### / {
+            h = $0; sub(/^###[ \t]+/, "", h); gsub(/[ \t]+$/, "", h)
+            pkgsec = (tolower(h) == pkg)
+            print
+            if (pkgsec) print ""
+            next
+        }
+        unrel && pkgsec { if ($0 != "") body[nb++] = $0; next }
+        { print }
+        END { if (unrel && !done) emit() }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+[ $# -ge 2 ] || usage
+case "$1" in
+    section) [ $# -eq 2 ] || usage; section "$2" ;;
+    release) [ $# -ge 3 ] || usage; release "$2" "$3" "${4:-}" ;;
+    *)       usage ;;
+esac
