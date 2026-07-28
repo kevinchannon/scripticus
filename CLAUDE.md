@@ -89,9 +89,11 @@ D3/D27 content hash (`treehash.py`), semver ordering (`semver.py`), the
 version-spec grammar plus the reusable version-window primitive
 (`version_spec.py`; grammar documented in ARCHITECTURE.md, primitive serving
 D42/D43), the `namespace/name` glob primitive (`identity_glob.py`, D50 —
-one `fnmatch` rule both sides of `list` use), and the snippet filename→variant
+one `fnmatch` rule both sides of `list` use), the snippet filename→variant
 rule (`snippet_variants.py`, D58 — one derivation of `src/<name>.<ext>` that
-publish and install must agree on). The manifest's tool-name charset
+publish and install must agree on), and the library sourcing rule
+(`language_compat.py`, D57 — which languages may source which, enforced by both
+the resolver and the client's post-download check). The manifest's tool-name charset
 validation lives with the manifest in `schema/` (D44). Each package's charter
 is its admission rule: `schema` admits a declarative shape (defines what a
 package is or how client and server communicate, D29); `common` admits a pure,
@@ -153,7 +155,24 @@ ownership state, no `use` involvement. The variant languages are never
 authored: `common`'s `snippet_variants.py` derives them from the tree, on the
 server at publish (into `db.Snippet`, which is what makes `search --language`
 and snippet-name matching work) and on the client at install (into the
-lockfile, which is what `snip` reads). `new --snippet` scaffolds. A
+lockfile, which is what `snip` reads). `new --snippet` scaffolds.
+**Library scripts (D57) have since landed too**, the third package kind and the
+first that is *sourced*: a fieldless `[library]` package of `sh`/`bash` code
+with its entry point at `src/load.<ext>`, pulled into a script by
+`scr_load <ns>/<name>`. The loader is real POSIX sh shipped as client package
+data (`loader/scr_load.sh`) — transitive, include-guarded before sourcing so
+cycles terminate, soft-fail on a miss, never versioned. Installed libraries
+stage to a version-less `lib/<ns>/<name>/load.sh` (`libraries.py`), a *generated
+wrapper* (not a symlink) that sets `SCR_LIB_DIR` and sources the versioned tree,
+so an upgrade rewrites one file and consumers need no rebuild. Availability has
+two paths: a `sh`/`bash` command's fully-qualified shim became a
+**source-wrapper** (exports `SCRIPTICUS_LIB`, sources the loader, then sources
+the script — an `exec` cannot carry a shell function), and `init` exports
+`SCRIPTICUS_LIB` for ad-hoc scripts. Compatibility is `common`'s
+`language_compat.py`, enforced in the resolver and re-checked client-side
+post-download. The server records the kind in a new `db.Library` table (a table,
+not a column: `create_all` never alters existing ones, D31). `new --lib`
+scaffolds; `uninstall` reports orphaned libraries but never removes them. A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
 registry bundle: a Caddy reverse-proxy front (`proxy/Caddyfile`, D45)
 presenting one user-facing URL over the index service and Gitea. The design
@@ -339,6 +358,10 @@ casually:
   codes never mean "partially installed".
 - **SQLite via SQLAlchemy with no SQLite-isms** (D23), so Postgres stays a
   configuration change.
+- **Libraries are shell-only and sourced, never run** (D57): only `sh`/`bash`,
+  because every other language already has a package manager for reusable code
+  — a deliberate non-goal. References carry no version (the closure pins one),
+  and a library has no shims at all.
 
 Deliberately not designed yet (per ARCHITECTURE.md): auth token scoping
 for CI publishing. Resolution is now designed (D42/D43); only the

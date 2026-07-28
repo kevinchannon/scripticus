@@ -110,3 +110,59 @@ def test_existing_directory_is_refused(in_tmp_path):
     result = new("bash", "my-cool-script", "-n", "acme")
     assert result.exit_code == 1
     assert "already exists" in result.output
+
+
+# --- Library packages (D57) -------------------------------------------------
+
+
+def test_new_lib_scaffolds_a_sourceable_package(in_tmp_path):
+    result = new("bash", "strings", "-n", "acme", "--lib")
+    assert result.exit_code == 0, result.output
+
+    pkg = in_tmp_path / "strings"
+    assert (pkg / "src" / "load.sh").is_file()
+    assert not (pkg / "src" / "main.sh").exists()
+    # No test/: a library is sourced, not run, so there is nothing to invoke.
+    assert not (pkg / "test").exists()
+
+    manifest = tomllib.loads((pkg / "meta.toml").read_text())
+    assert manifest["library"] == {}
+    assert manifest["package"]["language"] == "bash"
+    assert "commands" not in manifest
+
+
+def test_a_scaffolded_library_packs(in_tmp_path):
+    # The scaffold must satisfy the manifest's own tree check, or `new` would
+    # hand the author something that cannot be published.
+    from scripticus.pack import pack_package
+
+    new("sh", "strings", "-n", "acme", "--lib")
+
+    archives = pack_package(in_tmp_path / "strings", in_tmp_path / "dist")
+
+    assert archives and archives[0].is_file()
+
+
+def test_a_library_must_be_shell(in_tmp_path):
+    result = new("python", "strings", "-n", "acme", "--lib")
+
+    assert result.exit_code == 1
+    assert "cannot be written in 'python'" in result.output
+    assert not (in_tmp_path / "strings").exists()
+
+
+def test_lib_and_snippet_together_are_refused(in_tmp_path):
+    result = new("bash", "strings", "-n", "acme", "--lib", "--snippet")
+
+    assert result.exit_code == 1
+    assert "pick one" in result.output
+
+
+def test_sh_is_available_as_a_command_language(in_tmp_path):
+    # A free by-product of adding sh for libraries (D57).
+    result = new("sh", "portable-tool", "-n", "acme")
+
+    assert result.exit_code == 0, result.output
+    assert (in_tmp_path / "portable-tool" / "src" / "main.sh").is_file()
+    manifest = tomllib.loads((in_tmp_path / "portable-tool" / "meta.toml").read_text())
+    assert manifest["package"]["language"] == "sh"

@@ -13,6 +13,9 @@ copying them around from wikis, chat, and assorted git repos.
   several commands.
 - **Snippets too**: distribute boilerplate that is meant to be pasted, not
   run — `snip args.sh` prints it, in whichever language you wrote it in.
+- **And shell libraries**: reusable shell code that is sourced rather than
+  run — `scr_load team/strings` — filling the one gap where the language has
+  no package manager of its own.
 - **Content-addressed**: every artifact is identified by the hash of its
   contents and verified on install.
 - **Self-hostable in one command**: the server ships as a Docker Compose

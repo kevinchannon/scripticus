@@ -22,6 +22,13 @@ class ScaffoldTemplate:
     executable: bool
 
 
+SH_MAIN = """\
+#!/bin/sh
+set -eu
+
+echo "Hello from {name}!"
+"""
+
 BASH_MAIN = """\
 #!/usr/bin/env bash
 set -euo pipefail
@@ -40,6 +47,7 @@ Write-Output "Hello from {name}!"
 """
 
 TEMPLATES: dict[str, ScaffoldTemplate] = {
+    "sh": ScaffoldTemplate(SH_MAIN, ("linux", "macos"), executable=True),
     "bash": ScaffoldTemplate(BASH_MAIN, ("linux", "macos"), executable=True),
     "python": ScaffoldTemplate(PYTHON_MAIN, ("linux", "macos", "windows"), executable=True),
     "powershell": ScaffoldTemplate(POWERSHELL_MAIN, ("windows",), executable=False),
@@ -83,6 +91,41 @@ SNIPPET_TEMPLATE = """\
 # pasted, and edited — so it can be a fragment.
 """
 
+# A library declares a language and platforms like a command package, but marks
+# itself with a fieldless [library] table and is sourced rather than run (D57).
+LIBRARY_MANIFEST_TEMPLATE = """\
+[package]
+namespace = "{namespace}"
+name = "{name}"
+version = "0.1.0"
+language = "{language}"
+# TODO: one-line description, shown in search results
+description = ""
+
+[platforms]
+os = [{os_list}]
+
+# Marks this package a library: sourced into other scripts, never run. Its
+# entry point is src/load.{extension}, and consumers reach it with
+# 'scr_load {namespace}/{name}'.
+[library]
+"""
+
+LIBRARY_LOAD = """\
+# Sourced into the caller's shell by 'scr_load {namespace}/{name}' — never run.
+# Define functions here; anything else executes in the caller's shell, which is
+# rarely what you want.
+#
+# Source a sibling file with:
+#     . "$SCR_LIB_DIR/src/helpers.{extension}"
+# Load another library with:
+#     scr_load other-namespace/other-library
+
+{prefix}_greet() {{
+    echo "Hello from {name}!"
+}}
+"""
+
 LICENSE_TEMPLATE = """\
 TODO: add your licence text.
 """
@@ -122,6 +165,54 @@ def scaffold_snippet_package(
         package_dir / "LICENSE": LICENSE_TEMPLATE,
         package_dir / "README.md": README_TEMPLATE.format(name=name),
         src_dir / f"{name}.{extension}": SNIPPET_TEMPLATE,
+    }
+    for path, content in files.items():
+        path.write_text(content)
+        created.append(path)
+
+    return created
+
+
+def scaffold_library_package(
+    language: str, name: str, namespace: str, parent: Path
+) -> list[Path]:
+    """Create a new library package skeleton under ``parent / name`` (D57).
+
+    Like a command package but for the entry point: ``src/load.<ext>`` instead
+    of ``src/main.<ext>``, and the ``[library]`` marker in place of any commands.
+    No ``test/``: a library is sourced, not run, so there is nothing to invoke.
+    """
+    template = TEMPLATES[language]
+    extension = LANGUAGES[language].extension
+
+    package_dir = parent / name
+    if package_dir.exists():
+        raise ScaffoldError(f"'{package_dir}' already exists")
+
+    src_dir = package_dir / "src"
+
+    created: list[Path] = []
+    for directory in (package_dir, src_dir):
+        directory.mkdir(parents=True)
+        created.append(directory)
+
+    os_list = ", ".join(f'"{os_name}"' for os_name in template.default_os)
+    # Shell has one flat function namespace, so a library's functions want a
+    # prefix; the package name is the obvious one and shows the convention.
+    prefix = name.replace("-", "_")
+    files = {
+        package_dir / "meta.toml": LIBRARY_MANIFEST_TEMPLATE.format(
+            name=name,
+            namespace=namespace,
+            language=language,
+            os_list=os_list,
+            extension=extension,
+        ),
+        package_dir / "LICENSE": LICENSE_TEMPLATE,
+        package_dir / "README.md": README_TEMPLATE.format(name=name),
+        src_dir / f"load.{extension}": LIBRARY_LOAD.format(
+            name=name, namespace=namespace, extension=extension, prefix=prefix
+        ),
     }
     for path, content in files.items():
         path.write_text(content)

@@ -98,6 +98,51 @@ description = "{description}"
     return archive_path
 
 
+def make_library_archive(
+    tmp_path: Path,
+    namespace="kevin-c",
+    name="strings",
+    version="1.0.0",
+    os_list=("linux", "macos"),
+    language="bash",
+    description="",
+    dependencies=None,
+) -> Path:
+    """Build and archive a library package (D57): the fieldless [library] marker
+    and a ``src/load.<ext>`` entry point, with no commands.
+    """
+    package_dir = tmp_path / f"src-{name}-{version}-library" / name
+    (package_dir / "src").mkdir(parents=True, exist_ok=True)
+    (package_dir / "src" / "load.sh").write_text("scr_upper() { tr a-z A-Z; }\n")
+    dependency_lines = "".join(
+        f'"{target}" = "{spec}"\n' for target, spec in (dependencies or {}).items()
+    )
+    (package_dir / "meta.toml").write_text(
+        f"""
+[package]
+namespace = "{namespace}"
+name = "{name}"
+version = "{version}"
+language = "{language}"
+description = "{description}"
+
+[platforms]
+os = [{", ".join(f'"{o}"' for o in os_list)}]
+
+[library]
+
+[dependencies.packages]
+{dependency_lines}
+"""
+    )
+
+    stem = f"{name.replace('-', '_')}-{version.replace('-', '_')}"
+    archive_path = tmp_path / f"{stem}-{'.'.join(os_list)}-{language}.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(package_dir, arcname=name)
+    return archive_path
+
+
 class FakeGitea:
     """Stands in for GiteaClient behind the publish endpoint's boundary."""
 
@@ -149,6 +194,14 @@ def make_archive(tmp_path):
 def make_snippet_archive_factory(tmp_path):
     def factory(**kwargs):
         return make_snippet_archive(tmp_path, **kwargs)
+
+    return factory
+
+
+@pytest.fixture
+def make_library_archive_factory(tmp_path):
+    def factory(**kwargs):
+        return make_library_archive(tmp_path, **kwargs)
 
     return factory
 

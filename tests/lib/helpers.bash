@@ -85,6 +85,52 @@ author_and_publish_snippets() {
         scripticus publish "builds/$name-$version"
 }
 
+# Author + publish a library package (D57): the fieldless [library] marker and
+# a src/load.sh entry point defining one function. Usage:
+#   author_and_publish_library <name> <version> <language> <function> <output>
+author_and_publish_library() {
+    local name="$1" version="$2" language="$3" function="$4" out="$5"
+    mkdir -p "$name/src"
+    {
+        printf '[package]\n'
+        printf 'namespace = "%s"\n' "$SCRIPTICUS_E2E_NAMESPACE"
+        printf 'name = "%s"\n' "$name"
+        printf 'version = "%s"\n' "$version"
+        printf 'language = "%s"\n' "$language"
+        printf 'description = "e2e library fixture"\n\n'
+        printf '[platforms]\nos = ["linux", "macos"]\n\n'
+        printf '[library]\n'
+    } > "$name/meta.toml"
+    printf '%s() { echo "%s"; }\n' "$function" "$out" > "$name/src/load.sh"
+    scripticus pack "$name" -o builds
+    SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_TOKEN" \
+        scripticus publish "builds/$name-$version"
+}
+
+# Author + publish a bash command package that depends on a library and calls
+# into it through scr_load. Usage:
+#   author_and_publish_consumer <name> <version> <library> <spec> <body>
+author_and_publish_consumer() {
+    local name="$1" version="$2" library="$3" spec="$4" body="$5"
+    mkdir -p "$name/src"
+    {
+        printf '[package]\n'
+        printf 'namespace = "%s"\n' "$SCRIPTICUS_E2E_NAMESPACE"
+        printf 'name = "%s"\n' "$name"
+        printf 'version = "%s"\n' "$version"
+        printf 'language = "bash"\n'
+        printf 'description = "e2e library consumer"\n\n'
+        printf '[platforms]\nos = ["linux", "macos"]\n\n'
+        printf '[dependencies.packages]\n'
+        printf '"%s/%s" = "%s"\n' "$SCRIPTICUS_E2E_NAMESPACE" "$library" "$spec"
+    } > "$name/meta.toml"
+    printf '%s\n' "$body" > "$name/src/main.sh"
+    chmod +x "$name/src/main.sh"
+    scripticus pack "$name" -o builds
+    SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_TOKEN" \
+        scripticus publish "builds/$name-$version"
+}
+
 # Author + publish a bash package with an explicit [commands] table, one
 # command per (name, output) pair, each printing its output so tests can tell
 # which shim ran. Usage:

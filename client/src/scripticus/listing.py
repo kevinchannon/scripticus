@@ -45,6 +45,19 @@ class Entry:
         return f"{self.namespace}/{self.name}"
 
 
+def kind_of_entry(entry: dict) -> str:
+    """A lockfile entry's package kind, from what it recorded at install time.
+
+    The client's counterpart to the server's projection-derived kind, so an
+    Installed row and an Available row for the same package agree (D57/D58).
+    """
+    if entry.get("snippets"):
+        return "snippet"
+    if entry.get("library"):
+        return "library"
+    return "command"
+
+
 @dataclass
 class Listing:
     installed: list[Entry]
@@ -77,7 +90,7 @@ def build_listing(
                 entry["namespace"],
                 entry["name"],
                 entry["version"],
-                kind="snippet" if entry.get("snippets") else "command",
+                kind=kind_of_entry(entry),
             )
             for entry in lock["packages"]
             if identity_matches(glob, entry["namespace"], entry["name"])

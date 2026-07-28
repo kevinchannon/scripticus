@@ -39,7 +39,9 @@ from scripticus_schema.manifest import (
     ManifestError,
     PackageMeta,
     commands_of,
+    is_library,
     language_tag,
+    library_entrypoint,
     load_manifest,
     snippet_variants,
     target_platforms,
@@ -388,6 +390,10 @@ def publish(
                 version.tool_deps.append(db.ToolDep(name=tool, required=False))
             for command, script in sorted(commands_of(manifest).items()):
                 version.commands.append(db.Command(name=command, script_path=script))
+            if is_library(manifest):
+                version.libraries.append(
+                    db.Library(entrypoint=library_entrypoint(manifest))
+                )
             for name, snippet in sorted((manifest.snippet or {}).items()):
                 version.snippets.append(
                     db.Snippet(

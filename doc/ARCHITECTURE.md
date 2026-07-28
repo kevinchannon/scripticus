@@ -92,6 +92,14 @@ A package declares what it provides, and the kinds are mutually exclusive:
 
 - **Command package** (the default) — `[commands]`, or the implicit
   `src/main.<ext>`. Requires `language` and `[platforms]`.
+- **Library package** (D57) — a fieldless `[library]` table, with the sourced
+  entry point at `src/load.<ext>` (the counterpart of the `src/main.<ext>`
+  command default). Requires `language` and `[platforms]` like a command, but
+  the language must be `sh` or `bash`: libraries target the POSIX-`source`
+  family only, because every other language Scripticus distributes commands in
+  already has a package manager for reusable code. The manifest enumerates
+  nothing further — what `load` sources (its own siblings, or other libraries
+  via `scr_load`) is the author's business.
 - **Snippet package** (D58) — `[snippet.<name>]` sections carrying only a
   description, with the code in flat `src/<name>.<ext>` files. A snippet is
   printed for the user to paste, never run, so the package has **no
@@ -110,6 +118,16 @@ manifest stays verbatim authored intent — name and description — and the
 variant list is a re-derivable projection (D21). Packing checks the two agree
 in both directions: a declared snippet with no file, or a file with no
 section, is an error.
+
+A package's `language` does double duty for libraries: it is also *what that
+package can source*. The rule is a pure `scripticus_common.language_compat`
+function — a consumer of language `C` may source a library of language `L` iff
+`C` is itself a shell and (`L == "sh"` or `L == C`). So an `sh` library serves
+both `sh` and `bash` consumers and a `bash` library serves only `bash`. It is
+enforced twice, by the same function: the resolver rejects an incompatible edge
+while solving a closure, and the client re-checks the manifests it actually
+downloaded before committing anything (the same instinct that re-hashes every
+blob).
 
 Scripticus performs **no correctness verification** of manifest claims
 (platforms, tools) at any point. This is an explicit non-goal: it is
@@ -300,6 +318,12 @@ namespace          — mirrors a Gitea user/org; a cached reference/FK anchor
               ├── snippet     — (snippet name, description, extensions):
               │                 the extensions derived from the tree at
               │                 publish, never authored (D58)
+              ├── library     — present iff the version is a library, at most
+              │                 one row, carrying its src/load.<ext> path.
+              │                 A table rather than a `kind` column because
+              │                 `create_all` (D31) adds tables but never
+              │                 columns, and the server has released
+              │                 consumers (D57)
               └── manifest_blob — the verbatim manifest as published
 ```
 
@@ -363,7 +387,11 @@ Everything lives under `~/.scripticus/`:
   reconciled through the same D28 uninstall picker (offer another installed
   provider, or remove-with-warning under `-y`); system tools are never
   removed — the closure's now-unneeded tools only produce an advisory to
-  remove them via the system package manager (D53).
+  remove them via the system package manager (D53). Libraries follow the same
+  advisory principle: uninstalling a package can leave a library nothing depends
+  on, and `uninstall` names it rather than removing it — it never removes a
+  package the user did not name, exactly as it already leaves orphaned command
+  packages alone (D57).
 - **`bin/`** — the shim directory, added to PATH once at client install
   time by `scripticus init` (D39). POSIX shims are symlinks or one-line
   wrappers; Windows shims are
@@ -376,6 +404,40 @@ Everything lives under `~/.scripticus/`:
   fully-qualified shim, so any shim reveals its true owner in one hop, and
   a shim name's dot count identifies its tier (the identifier character
   sets all exclude `.`).
+
+- **`lib/`** — the library staging tree (D57). It holds the `scr_load` loader
+  itself (`lib/scr_load.sh`, laid down by `scripticus init` and refreshed by
+  every library install) plus one generated wrapper per installed library at
+  `lib/<namespace>/<name>/load.sh`. The path is **version-less** — the closure
+  pins exactly one version — so the wrapper is what points it at the versioned
+  tree under `pkgs/`: two lines that set `SCR_LIB_DIR` and dot-source the entry
+  point. Upgrading a library rewrites that one file, and every consumer picks
+  the new code up without being rebuilt. A wrapper rather than a symlink because
+  symlinks need privileges on Windows, and because rewriting one small file is
+  how the exec shims already behave.
+
+A library reaches a running script two ways. A command Scripticus launches gets
+it automatically: for a `sh`/`bash` package the fully-qualified shim is a
+**source-wrapper** — it exports `SCRIPTICUS_LIB`, sources the loader, then
+sources the script — rather than the one-line `exec` wrapper other languages
+keep. Sourcing is what makes it work at all: `scr_load` is a shell *function*,
+and no environment variable can inject one into an `exec`ed process
+(`BASH_ENV` would, but only for bash, and `sh` is the baseline). Positional
+parameters pass through a dot-source unchanged and the shim exits with the
+script's status; the visible cost is that `$0` inside the script is the shim.
+A user's own ad-hoc script opts in instead, sourcing `$SCRIPTICUS_LIB/scr_load.sh`
+— which is why `init` exports `SCRIPTICUS_LIB` alongside its PATH line (D39).
+Windows `.cmd` shims are unchanged: `cmd.exe` cannot source a POSIX loader.
+
+`scr_load <namespace>/<name>` itself is POSIX `sh`, since it is sourced into
+whatever shell the consumer runs. It is transitive (a library's `load` may load
+others), idempotent via a list of what the process has already loaded — recorded
+*before* sourcing, so a cycle stops rather than recursing — and soft-fail: a
+miss returns non-zero and lets the caller decide. It never takes a version.
+`SCR_LIB_DIR` is how a multi-file library reaches its own siblings, which POSIX
+sh otherwise gives a sourced file no way to find; `scr_load` saves and restores
+the caller's value across a nested load, using the function's own positional
+parameters as the one storage a recursive call cannot clobber.
 
 A snippet package touches none of this (D58): it installs as a tree plus a
 lockfile entry recording its derived `{snippet: [extensions]}` map, with no

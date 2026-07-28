@@ -9,7 +9,8 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from scripticus import __version__, scaffold
+from scripticus import __version__, libraries, scaffold
+from scripticus_common.language_compat import LIBRARY_LANGUAGES
 from scripticus.config import (
     ConfigError,
     Remote,
@@ -161,7 +162,7 @@ def new(
     language: Optional[str] = typer.Argument(
         None,
         metavar="LANGUAGE",
-        help="Language of the new package (bash, powershell, python)."
+        help="Language of the new package (bash, python, powershell, sh)."
         " Omitted for --snippet, which has no package language.",
     ),
     name: Optional[str] = typer.Argument(
@@ -182,6 +183,12 @@ def new(
         help="Scaffold a snippet package (boilerplate to paste) instead of a"
         " command package.",
     ),
+    library: bool = typer.Option(
+        False,
+        "--lib",
+        help="Scaffold a library package (shell code to source) instead of a"
+        " command package.",
+    ),
     extension: str = typer.Option(
         "sh",
         "--ext",
@@ -190,9 +197,16 @@ def new(
     ),
 ) -> None:
     """Scaffold a new package directory."""
+    if snippet and library:
+        console.print(
+            "[red]error:[/red] --snippet and --lib are different package kinds"
+            " — pick one"
+        )
+        raise typer.Exit(code=1)
     # A snippet package has no language, so its single positional is the name
     # (D58). Validated here rather than in argument callbacks, which cannot see
-    # whether --snippet was given.
+    # whether --snippet was given. A library does declare one, so it keeps the
+    # two-positional form (D57).
     if snippet and name is None:
         language, name = None, language
     if name is None:
@@ -218,11 +232,22 @@ def new(
             raise typer.Exit(code=1)
     else:
         _validate_language(language)
+        if library and language not in LIBRARY_LANGUAGES:
+            supported = ", ".join(LIBRARY_LANGUAGES)
+            console.print(
+                f"[red]error:[/red] a library cannot be written in '{language}'"
+                f" ({supported} only) — every other language Scripticus"
+                " distributes commands in has its own package manager for"
+                " reusable code"
+            )
+            raise typer.Exit(code=1)
 
     cwd = Path.cwd()
     try:
         if snippet:
             created = scaffold.scaffold_snippet_package(name, namespace, extension, cwd)
+        elif library:
+            created = scaffold.scaffold_library_package(language, name, namespace, cwd)
         else:
             created = scaffold.scaffold_package(language, name, namespace, cwd)
     except scaffold.ScaffoldError as exc:
@@ -791,6 +816,13 @@ def search(
         if pkg.kind == "snippet":
             provides = ", ".join(pkg.snippets) if pkg.snippets else "no snippets"
             description = f"{description}\n[dim]snippets: {escape(provides)}[/dim]"
+        elif pkg.kind == "library":
+            # Nothing runnable here either, and no tokens to list — say how it
+            # is used instead, which is the same for every library (D57).
+            description = (
+                f"{description}\n[dim]library: scr_load"
+                f" {escape(pkg.namespace)}/{escape(pkg.name)}[/dim]"
+            )
         row = [
             f"{pkg.namespace}/{pkg.name}",
             pkg.latest_version,
@@ -909,7 +941,12 @@ def uninstall(
 
     package_id = f"{entry['namespace']}/{entry['name']}"
     console.print(f"Uninstalling [bold]{package_id}[/bold] {entry['version']}")
-    if entry.get("shims"):
+    if entry.get("library"):
+        console.print(
+            "\nThis is a library: removing it makes"
+            f" 'scr_load {package_id}' fail in anything still sourcing it."
+        )
+    elif entry.get("shims"):
         console.print(f"\nCommand shims to remove: {', '.join(entry['shims'])}")
     else:
         console.print(
@@ -925,6 +962,17 @@ def uninstall(
 
     apply_uninstall(entry, lock, home)
     console.print(f"\nUninstalled [bold]{package_id}[/bold] {entry['version']}")
+
+    # Libraries that came along as dependencies and are now needed by nothing.
+    # Advisory only: uninstall never removes a package the user did not name,
+    # which is how orphaned command packages already behave (D57).
+    orphans = libraries.orphaned_libraries(lock)
+    if orphans:
+        listed = ", ".join(f"{o['namespace']}/{o['name']}" for o in orphans)
+        console.print(
+            f"\n[yellow]note:[/yellow] no installed package now needs: {listed}"
+            " — remove with 'scripticus uninstall <name>' if you want the space back."
+        )
 
     for shim in sorted(replacements):
         candidates = replacements[shim]

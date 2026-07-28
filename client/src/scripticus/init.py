@@ -12,14 +12,22 @@ the bin directory is already on the live PATH or already in the target.
 import os
 from pathlib import Path
 
+from scripticus import libraries
+
 _PROFILES = {"zsh": ".zshrc", "bash": ".bashrc"}
 
 
 def ensure_skeleton(home: Path) -> bool:
-    """Create the client state skeleton; True if anything was created."""
+    """Create the client state skeleton; True if anything was created.
+
+    Also lays down (or refreshes) the ``scr_load`` loader, so a script can opt
+    into libraries before any library is installed — and so an upgraded client
+    replaces an older loader (D57).
+    """
     bin_dir = home / "bin"
     created = not bin_dir.is_dir()
     bin_dir.mkdir(parents=True, exist_ok=True)
+    libraries.install_loader(home)
     return created
 
 
@@ -38,14 +46,38 @@ def path_line(bin_dir: Path) -> str:
     return f'export PATH="{bin_dir}:$PATH"  # added by scripticus init'
 
 
+def lib_line(bin_dir: Path) -> str:
+    """The ``SCRIPTICUS_LIB`` export (D57).
+
+    A user's own ad-hoc script opts into ``scr_load`` by sourcing
+    ``$SCRIPTICUS_LIB/scr_load.sh``, which needs the variable exported globally
+    rather than only inside the shims Scripticus writes.
+
+    Deliberately a *second* line rather than an addition to the PATH one: a user
+    who ran `init` before libraries existed already has the PATH line, so
+    folding the two together would leave them silently without the export.
+    """
+    return f'export SCRIPTICUS_LIB="{bin_dir.parent / "lib"}"  # added by scripticus init'
+
+
 def _ensure_profile_path(bin_dir: Path, environ) -> tuple[bool, str]:
     profile = profile_path(environ)
     text = profile.read_text() if profile.is_file() else ""
-    if str(bin_dir) in text:
+    # Each line is guarded on its own marker, so an upgrade adds only what is
+    # missing and re-running adds nothing.
+    missing = [
+        line
+        for marker, line in (
+            (str(bin_dir), path_line(bin_dir)),
+            ("SCRIPTICUS_LIB", lib_line(bin_dir)),
+        )
+        if marker not in text
+    ]
+    if not missing:
         return False, str(profile)
     separator = "" if not text or text.endswith("\n") else "\n"
     with profile.open("a") as file:
-        file.write(f"{separator}{path_line(bin_dir)}\n")
+        file.write(separator + "".join(f"{line}\n" for line in missing))
     return True, str(profile)
 
 

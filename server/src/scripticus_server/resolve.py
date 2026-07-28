@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from scripticus_common.language_compat import language_satisfies
 from scripticus_common.semver import semver_key
 from scripticus_common.version_spec import VersionSpec, parse
 from scripticus_schema.resolve_api import (
@@ -78,6 +79,14 @@ class Index(Protocol):
         """command name -> script path for ``package@version`` (the index's
         publish-time projection, default entrypoint already applied).
         """
+        ...
+
+    def language(self, package: str, version: str) -> str:
+        """The declared language of ``package@version``; ``""`` if unknown."""
+        ...
+
+    def is_library(self, package: str, version: str) -> bool:
+        """Whether ``package@version`` is a library package (D57)."""
         ...
 
 
@@ -227,6 +236,32 @@ def _diagnose_held_back(
     )
 
 
+def _check_library_languages(index: Index, assignment: dict[str, str]) -> None:
+    """Reject a closure where something sources a library it cannot source (D57).
+
+    A package's declared ``language`` doubles as "what I can source", so an edge
+    to a library is only valid when the shared ``language_satisfies`` rule holds
+    — the same rule the client re-runs against the staged manifests.
+
+    Checked once over the solved closure rather than as a pruning rule inside
+    the search: a package's language is fixed by its identity in practice, so
+    there is no other version choice that would rescue an incompatible edge, and
+    a post-check keeps the solver free of kind-specific knowledge.
+    """
+    for package, version in sorted(assignment.items()):
+        consumer_language = index.language(package, version)
+        for target, _spec in index.dependencies(package, version):
+            target_version = assignment.get(target)
+            if target_version is None or not index.is_library(target, target_version):
+                continue
+            library_language = index.language(target, target_version)
+            if not language_satisfies(consumer_language, library_language):
+                raise ResolutionError(
+                    f"'{package}@{version}' ({consumer_language}) cannot source"
+                    f" library '{target}@{target_version}' ({library_language})"
+                )
+
+
 def _topological(assignment: dict[str, str], index: Index) -> list[str]:
     """Packages ordered dependencies-before-dependents (post-order DFS; the
     graph is acyclic by D33).
@@ -305,6 +340,8 @@ def resolve_closure(
         if failure:
             raise ResolutionError(f"'{failure['package']}' {failure['reason']}")
         raise ResolutionError(f"could not resolve {sorted(root_packages)}")
+
+    _check_library_languages(index, assignment)
 
     # Only an upgrade tries to move a root, so only then can one be held back.
     held_back = {
@@ -407,6 +444,18 @@ class DbIndex:
         if pv is None:
             return {}
         return {command.name: command.script_path for command in pv.commands}
+
+    def language(self, package: str, version: str) -> str:
+        # Language is a package-level property, so every artifact of a version
+        # carries the same one; the first is as good as any.
+        pv = self._version(package, version)
+        if pv is None:
+            return ""
+        return next((artifact.language for artifact in pv.artifacts), "")
+
+    def is_library(self, package: str, version: str) -> bool:
+        pv = self._version(package, version)
+        return pv is not None and bool(pv.libraries)
 
 
 @router.post("/resolve")

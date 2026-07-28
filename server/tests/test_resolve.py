@@ -30,6 +30,8 @@ class FakeIndex:
         tools=None,
         commands=None,
         yanked=False,
+        language="bash",
+        library=False,
     ):
         self._pkgs.setdefault(package, {})[version] = {
             "platforms": set(platforms),
@@ -37,6 +39,8 @@ class FakeIndex:
             "tools": tools or {},
             "commands": commands or {},
             "yanked": yanked,
+            "language": language,
+            "library": library,
         }
         return self
 
@@ -63,6 +67,14 @@ class FakeIndex:
     def commands(self, package, version):
         meta = self._pkgs.get(package, {}).get(version)
         return dict(meta["commands"]) if meta else {}
+
+    def language(self, package, version):
+        meta = self._pkgs.get(package, {}).get(version)
+        return meta["language"] if meta else ""
+
+    def is_library(self, package, version):
+        meta = self._pkgs.get(package, {}).get(version)
+        return bool(meta["library"]) if meta else False
 
 
 def resolve(index, root, spec="", platform="linux", installed=None, roots=None, upgrade=False):
@@ -381,6 +393,8 @@ def seed(session_factory, namespace, name, version, **kwargs):
     tools = kwargs.get("tools", {})
     commands = kwargs.get("commands", {})
     platforms = kwargs.get("platforms", ("linux",))
+    language = kwargs.get("language", "bash")
+    library = kwargs.get("library", False)
     with session_factory() as session:
         ns = session.scalar(
             select(db.Namespace).where(db.Namespace.name == namespace)
@@ -394,10 +408,12 @@ def seed(session_factory, namespace, name, version, **kwargs):
         db.Artifact(
             package_version=pv,
             platforms=",".join(platforms),
-            language="bash",
+            language=language,
             content_hash=f"sha256:{name}:{version}",
             gitea_pointer=f"/blob/{namespace}/{name}/{version}",
         )
+        if library:
+            pv.libraries.append(db.Library(entrypoint="src/load.sh"))
         for target, spec in deps.items():
             pv.dependencies.append(db.Dependency(target=target, spec=spec))
         for tool, required in tools.items():
@@ -445,6 +461,107 @@ def test_endpoint_resolves_closure_with_pointers(client, session_factory):
     assert log_common["commands"] == {"log-common": "src/main.sh"}
     assert body["packages"][1]["direct"] is True
     assert body["tools"] == [{"name": "jq", "required": True}]
+
+
+# --- Library language compatibility (D57) ----------------------------------
+
+
+def test_an_sh_library_satisfies_a_bash_consumer():
+    # The portable baseline is the point: write it in sh, source it anywhere in
+    # the family.
+    index = (
+        FakeIndex()
+        .add("acme/app", "1.0.0", language="bash", deps={"acme/strings": "^1"})
+        .add("acme/strings", "1.0.0", language="sh", library=True)
+    )
+
+    result = resolve(index, "acme/app")
+
+    assert versions_of(result) == {"acme/app": "1.0.0", "acme/strings": "1.0.0"}
+
+
+def test_an_sh_library_satisfies_an_sh_consumer():
+    index = (
+        FakeIndex()
+        .add("acme/app", "1.0.0", language="sh", deps={"acme/strings": "^1"})
+        .add("acme/strings", "1.0.0", language="sh", library=True)
+    )
+
+    assert versions_of(resolve(index, "acme/app"))["acme/strings"] == "1.0.0"
+
+
+def test_a_bash_library_satisfies_a_bash_consumer():
+    index = (
+        FakeIndex()
+        .add("acme/app", "1.0.0", language="bash", deps={"acme/strings": "^1"})
+        .add("acme/strings", "1.0.0", language="bash", library=True)
+    )
+
+    assert versions_of(resolve(index, "acme/app"))["acme/strings"] == "1.0.0"
+
+
+def test_a_bash_library_under_an_sh_consumer_is_rejected():
+    # The failure the rule exists to prevent: a bashism sourced into POSIX sh.
+    # Caught while resolving, so nothing is ever downloaded.
+    index = (
+        FakeIndex()
+        .add("acme/app", "1.0.0", language="sh", deps={"acme/strings": "^1"})
+        .add("acme/strings", "1.0.0", language="bash", library=True)
+    )
+
+    with pytest.raises(ResolutionError) as excinfo:
+        resolve(index, "acme/app")
+
+    message = str(excinfo.value)
+    assert "acme/app@1.0.0" in message and "acme/strings@1.0.0" in message
+    assert "sh" in message and "bash" in message
+
+
+def test_a_python_consumer_cannot_source_a_library():
+    # Nothing outside the shell family sources anything at all.
+    index = (
+        FakeIndex()
+        .add("acme/app", "1.0.0", language="python", deps={"acme/strings": "^1"})
+        .add("acme/strings", "1.0.0", language="sh", library=True)
+    )
+
+    with pytest.raises(ResolutionError, match="cannot source library"):
+        resolve(index, "acme/app")
+
+
+def test_a_non_library_dependency_is_not_language_checked():
+    # Two command packages have no sourcing relationship, so their languages
+    # are none of the resolver's business — a python tool may perfectly well
+    # depend on a bash one.
+    index = (
+        FakeIndex()
+        .add("acme/app", "1.0.0", language="python", deps={"acme/helper": "^1"})
+        .add("acme/helper", "1.0.0", language="bash")
+    )
+
+    assert versions_of(resolve(index, "acme/app"))["acme/helper"] == "1.0.0"
+
+
+def test_endpoint_rejects_an_incompatible_library_with_422(client, session_factory):
+    seed(session_factory, "acme", "app", "1.0.0", language="sh", deps={"acme/strings": "^1"})
+    seed(session_factory, "acme", "strings", "1.0.0", language="bash", library=True)
+
+    response = post_resolve(client, "acme/app")
+
+    assert response.status_code == 422
+    assert "cannot source library" in response.json()["detail"]
+
+
+def test_endpoint_resolves_a_compatible_library(client, session_factory):
+    seed(session_factory, "acme", "app", "1.0.0", language="bash", deps={"acme/strings": "^1"})
+    seed(session_factory, "acme", "strings", "1.0.0", language="sh", library=True)
+
+    response = post_resolve(client, "acme/app")
+
+    assert response.status_code == 200, response.text
+    # Dependencies come back before dependents, so the library is installed
+    # before the thing that sources it.
+    assert [p["name"] for p in response.json()["packages"]] == ["strings", "app"]
 
 
 def test_endpoint_unknown_root_is_404(client):

@@ -17,6 +17,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripticus import libraries
 from scripticus.install import (
     _find_entry,
     _shim_path,
@@ -123,7 +124,7 @@ def install_replacement(candidate: Candidate, shim: str, lock: dict, home: Path)
     bin_dir.mkdir(parents=True, exist_ok=True)
     script = home / "pkgs" / candidate.namespace / candidate.name / candidate.version / candidate.script
     target = fq_shim(candidate.namespace, candidate.name, shim_command(shim))
-    _write_shim(bin_dir, target, script, candidate.language)
+    _write_shim(bin_dir, target, script, candidate.language, home)
     _write_delegating_shim(bin_dir, shim, target)
 
     entry = _find_entry(lock, candidate.namespace, candidate.name)
@@ -144,6 +145,8 @@ def apply_uninstall(entry: dict, lock: dict, home: Path) -> None:
         )
     for shim in entry.get("shims", []):
         _shim_path(bin_dir, shim).unlink(missing_ok=True)
+    if entry.get("library"):
+        libraries.remove_library(home, entry["namespace"], entry["name"])
 
     package_dir = home / "pkgs" / entry["namespace"] / entry["name"] / entry["version"]
     shutil.rmtree(package_dir, ignore_errors=True)

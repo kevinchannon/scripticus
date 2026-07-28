@@ -104,6 +104,7 @@ class PackageVersion(Base):
     tool_deps: Mapped[list["ToolDep"]] = relationship()
     commands: Mapped[list["Command"]] = relationship()
     snippets: Mapped[list["Snippet"]] = relationship()
+    libraries: Mapped[list["Library"]] = relationship()
     manifest_blob: Mapped["ManifestBlob | None"] = relationship(
         back_populates="package_version"
     )
@@ -178,6 +179,26 @@ class Snippet(Base):
 
     def extension_list(self) -> list[str]:
         return self.extensions.split(",") if self.extensions else []
+
+
+class Library(Base):
+    """Present iff a version is a library package (D57) — at most one row.
+
+    A separate table rather than a ``kind`` column on ``package_version``:
+    ``create_all`` (D31) creates new tables but never alters existing ones, and
+    the server has released consumers, so a new column would silently not appear
+    on an existing index. ``entrypoint`` is the ``src/load.<ext>`` path the
+    consumer sources — derivable from the manifest's language, stored so a
+    reader needs no language table.
+    """
+
+    __tablename__ = "library"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    package_version_id: Mapped[int] = mapped_column(
+        ForeignKey("package_version.id"), unique=True
+    )
+    entrypoint: Mapped[str] = mapped_column(default="")
 
 
 class ManifestBlob(Base):

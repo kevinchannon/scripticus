@@ -12,6 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from scripticus_common.language_compat import LIBRARY_LANGUAGES
 from scripticus_common.snippet_variants import variants_from_paths
 
 from scripticus_common.semver import SEMVER_RE
@@ -48,6 +49,10 @@ class Language:
 
 
 LANGUAGES: dict[str, Language] = {
+    # The POSIX baseline (D57). Added for libraries, but it makes portable `sh`
+    # *commands* possible too — a free by-product. It shares bash's extension:
+    # a `.sh` file's dialect is the package's declared language, not its suffix.
+    "sh": Language("sh", "sh", "sh"),
     "bash": Language("sh", "bash", "bash"),
     "python": Language("py", "python3", "python"),
     "powershell": Language("ps1", "pwsh", "powershell"),
@@ -162,6 +167,16 @@ class Dependencies(BaseModel):
     tools: ToolDependencies = Field(default_factory=ToolDependencies)
 
 
+class Library(BaseModel):
+    """The fieldless ``[library]`` marker (D57).
+
+    Its presence is the whole declaration: a library's entry point is
+    ``src/load.<ext>`` by convention, and what that script sources — its own
+    siblings, or other library packages via ``scr_load`` — is the author's
+    business, enumerated nowhere.
+    """
+
+
 class Snippet(BaseModel):
     """One ``[snippet.<name>]`` section: authored intent, nothing derivable.
 
@@ -180,6 +195,7 @@ class Manifest(BaseModel):
     # of everything else.
     platforms: Platforms | None = None
     commands: dict[str, str] | None = None
+    library: Library | None = None
     snippet: dict[str, Snippet] | None = None
     dependencies: Dependencies = Field(default_factory=Dependencies)
 
@@ -188,14 +204,26 @@ class Manifest(BaseModel):
         """The package kinds are exclusive, and each requires its own fields.
 
         A snippet package is never run or sourced, so it has neither a language
-        nor (usually) a platform; a command package must declare both.
+        nor (usually) a platform; a command or library package must declare
+        both, and a library's language must be one it can be sourced from (D57).
         """
+        declared = [
+            marker
+            for marker, value in (
+                ("[library]", self.library),
+                ("[snippet]", self.snippet),
+                ("[commands]", self.commands),
+            )
+            if value is not None
+        ]
+        if len(declared) > 1:
+            kind, *rest = declared
+            raise ValueError(
+                f"a {kind} package cannot also declare {' and '.join(rest)}"
+                " — a package is one kind or the other"
+            )
+
         if self.snippet is not None:
-            if self.commands is not None:
-                raise ValueError(
-                    "a [snippet] package cannot also declare [commands]"
-                    " — a package is one kind or the other"
-                )
             if not self.snippet:
                 raise ValueError("[snippet] is empty: declare at least one [snippet.<name>]")
             for name in self.snippet:
@@ -211,11 +239,46 @@ class Manifest(BaseModel):
                 raise ValueError("[package] language is required")
             if self.platforms is None:
                 raise ValueError("[platforms] is required")
+            if self.library is not None and self.package.language not in LIBRARY_LANGUAGES:
+                supported = ", ".join(LIBRARY_LANGUAGES)
+                raise ValueError(
+                    f"a [library] package cannot be written in"
+                    f" '{self.package.language}' ({supported} only) — every other"
+                    " language Scripticus distributes commands in has its own"
+                    " package manager for reusable code"
+                )
         return self
 
 
 def is_snippet(manifest: Manifest) -> bool:
     return manifest.snippet is not None
+
+
+def is_library(manifest: Manifest) -> bool:
+    return manifest.library is not None
+
+
+def kind_of(manifest: Manifest) -> str:
+    """Which of the three package kinds this manifest declares (D57/D58).
+
+    The one name for a kind, so the archive tag, the index projection, and the
+    `list`/`search` rows never drift apart.
+    """
+    if manifest.snippet is not None:
+        return "snippet"
+    if manifest.library is not None:
+        return "library"
+    return "command"
+
+
+def library_entrypoint(manifest: Manifest) -> str:
+    """The package-relative path a library is sourced from: ``src/load.<ext>``.
+
+    The library counterpart of the ``src/main.<ext>`` command default, and the
+    only structural claim a library makes (D57) — what it sources beyond that is
+    never enumerated.
+    """
+    return f"src/load.{LANGUAGES[manifest.package.language].extension}"
 
 
 def language_tag(manifest: Manifest) -> str:
@@ -278,10 +341,17 @@ def check_package_tree(manifest: Manifest, package_dir: Path) -> list[str]:
 
     For a snippet package the check is that the manifest and ``src/`` agree in
     both directions: every declared snippet has at least one variant file, and
-    every ``src/<name>.<ext>`` file is declared. Nothing checks that a snippet
-    is *valid* in its claimed language — that stays the author's problem (D14).
+    every ``src/<name>.<ext>`` file is declared. For a library it is that the
+    sourced entry point exists. Nothing checks that a snippet is *valid* in its
+    claimed language, or that a library is actually sourceable — that stays the
+    author's problem (D14).
     """
     errors = []
+    if manifest.library is not None:
+        entrypoint = library_entrypoint(manifest)
+        if not (package_dir / entrypoint).is_file():
+            errors.append(f"[library] package has no {entrypoint} to source")
+        return errors
     if manifest.snippet is not None:
         found = snippet_variants(manifest, package_dir)
         for name in manifest.snippet:
@@ -333,10 +403,11 @@ def load_manifest(package_dir: Path) -> Manifest:
 def commands_of(manifest: Manifest) -> dict[str, str]:
     """The command -> script-path map, applying the default-entrypoint rule.
 
-    Empty for a snippet package: it provides nothing runnable, so it takes no
-    part in the shim system at all (D58).
+    Empty for a snippet or library package: neither provides anything runnable,
+    so both stay out of the shim system entirely (D57/D58). A library is sourced
+    by name through ``scr_load``, never invoked through PATH.
     """
-    if manifest.snippet is not None:
+    if manifest.snippet is not None or manifest.library is not None:
         return {}
     if manifest.commands:
         return dict(manifest.commands)

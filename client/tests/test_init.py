@@ -5,7 +5,7 @@ import pytest
 from typer.testing import CliRunner
 
 from scripticus.cli import app
-from scripticus.init import on_path, path_line
+from scripticus.init import lib_line, on_path, path_line
 
 runner = CliRunner()
 
@@ -85,6 +85,30 @@ def test_manually_added_path_entry_in_profile_is_respected(home, tmp_path):
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0, result.output
     assert profile.read_text().count(str(home / "bin")) == 1
+
+
+def test_init_exports_the_library_dir_and_lays_down_the_loader(home, tmp_path):
+    # Ad-hoc scripts opt into scr_load by sourcing $SCRIPTICUS_LIB/scr_load.sh
+    # (D57), so both the variable and the file have to be there.
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+
+    assert lib_line(home / "bin") in (tmp_path / ".zshrc").read_text()
+    assert (home / "lib" / "scr_load.sh").is_file()
+
+
+def test_init_adds_the_library_export_to_an_older_profile(home, tmp_path):
+    # A user who ran `init` before libraries existed has the PATH line already;
+    # re-running must add the missing export rather than deciding it is done.
+    profile = tmp_path / ".zshrc"
+    profile.write_text(path_line(home / "bin") + "\n")
+
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+
+    text = profile.read_text()
+    assert text.count(path_line(home / "bin")) == 1
+    assert lib_line(home / "bin") in text
 
 
 def test_on_path_normalises_trailing_separators(home):

@@ -253,6 +253,57 @@ $ scripticus search trap
 $ scripticus search --language python args
 ```
 
+### Libraries
+
+Shell is the one common scripting language with no package manager for
+*reusable code* — every project reinvents a `lib/` directory and a pile of
+`source` lines. A **library** package fills that: shell code you source rather
+than run.
+
+Nothing needs installing by hand. A command that depends on a library gets it
+as an ordinary dependency, and can source it by name:
+
+```bash
+#!/usr/bin/env bash
+scr_load infra/strings      # namespace/name — never a version
+
+scr_strings_upper "shout"
+```
+
+`scr_load` is already in scope: Scripticus puts it there when it launches your
+command. In your own ad-hoc scripts — anything not installed as a package —
+source it first:
+
+```bash
+. "$SCRIPTICUS_LIB/scr_load.sh"
+scr_load infra/strings
+```
+
+`scripticus init` exports `SCRIPTICUS_LIB` alongside the PATH entry, so this
+works in any shell once you have run it.
+
+Loading is transitive (a library may load other libraries), and repeat loads
+are free — loading the same library twice, or via two different paths, does
+nothing the second time. A missing library returns non-zero rather than killing
+your script, so you can decide what to do:
+
+```bash
+if ! scr_load infra/optional-helpers; then
+    echo "running without the helpers" >&2
+fi
+```
+
+References never carry a version. The resolved closure already pins exactly one
+version of each package, so there is nothing to choose at load time; upgrading
+the library with `scripticus update` is enough, and every consumer picks up the
+new code without being rebuilt.
+
+Libraries are `sh` or `bash` only. Python, Ruby, PowerShell and the rest already
+have pip, gem and PSGallery — Scripticus does not duplicate them. A `sh` library
+can be sourced by both `sh` and `bash` consumers; a `bash` library only by
+`bash` ones, and asking for anything else is refused when the install is
+resolved, not at 3am in production.
+
 ## Authoring packages
 
 ### Scaffolding
@@ -299,7 +350,7 @@ which points the shim at your working directory.
 namespace = "infra"
 name = "backup-rotate"
 version = "1.2.0"
-language = "bash"
+language = "bash"                 # sh, bash, python, powershell
 description = "Rotate and prune backup sets"
 
 [platforms]
@@ -326,6 +377,8 @@ Entrypoint rules:
   the package language). Typing the package name runs it.
 - **`[commands]` table present**: each entry maps a command name to a script
   path. Every listed command gets a shim on install.
+- **`[library]` or `[snippet.<name>]` instead**: the package provides no
+  commands at all, and gets no shims. See the sections below.
 
 Versions must be strict [semver](https://semver.org); publishes with
 non-conforming versions are rejected.
@@ -373,11 +426,63 @@ publish for the index and at install for `snip`. Add `src/args.rb` and
 commands (C++, Rust, Go). The two must agree, though: a declared snippet with
 no file, or a file with no section, is a packing error.
 
+### Authoring libraries
+
+A library package declares a fieldless `[library]` table instead of
+`[commands]`, and its entry point is `src/load.<ext>` — the sourced counterpart
+of `src/main.<ext>`:
+
+```console
+$ scripticus new bash strings -n infra --lib
+```
+
+```toml
+[package]
+namespace = "infra"
+name = "strings"
+version = "1.0.0"
+language = "bash"          # sh or bash — libraries are shell only
+description = "String helpers"
+
+[platforms]
+os = ["linux", "macos"]
+
+[library]
+```
+
+```
+strings/
+├── meta.toml
+└── src/
+    ├── load.sh      # sourced by scr_load infra/strings
+    └── helpers.sh   # sourced by load.sh, if you want the split
+```
+
+`load.sh` is sourced into the *caller's* shell, so it should define functions
+and little else — anything at top level runs in someone else's script. Shell
+has one flat function namespace, so prefix your functions with something
+identifying (`scr_strings_upper`, not `upper`).
+
+To source a sibling file, use `$SCR_LIB_DIR`, which is set to your package's
+directory before `load.sh` runs:
+
+```bash
+. "$SCR_LIB_DIR/src/helpers.sh"
+```
+
+A library may depend on other libraries and load them the same way any consumer
+does — `scr_load other/library` inside `load.sh`. The manifest lists nothing
+about what you source; only package dependencies, as usual.
+
+Choose `sh` unless you need bash. An `sh` library can be sourced by everything
+in the family; a `bash` one only by `bash` consumers, and Scripticus refuses the
+mismatch when the install is resolved.
+
 > **Manifest accuracy is your responsibility.** Scripticus performs no
 > correctness checks on the declared platforms or tool dependencies — neither
-> at publish nor install. If the manifest is wrong, the package will be wrong,
-> exactly as with a broken `pyproject.toml` or `package.json`. Test your
-> packages.
+> at publish nor install. Nothing checks that a `load.sh` is actually sourceable,
+> either. If the manifest is wrong, the package will be wrong, exactly as with a
+> broken `pyproject.toml` or `package.json`. Test your packages.
 
 ### Multi-file packages
 

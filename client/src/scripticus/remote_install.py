@@ -41,9 +41,12 @@ from scripticus.install import (
 from scripticus_common.semver import semver_key
 from scripticus_common.treehash import tree_hash
 from scripticus_common.version_spec import VersionSpecError, parse as parse_spec
+from scripticus_common.language_compat import language_satisfies
 from scripticus_schema.manifest import (
     Manifest,
+    is_library,
     language_tag,
+    library_entrypoint,
     load_manifest,
     snippet_variants,
 )
@@ -377,6 +380,50 @@ def stage_downloads(plan: RemotePlan) -> tuple[Path, list[Staged]]:
 # --- Commit ----------------------------------------------------------------
 
 
+def _closure_languages(staged: list[Staged], lock: dict) -> dict[str, tuple[str, bool]]:
+    """``package_id -> (language, is_library)`` for everything in play: what is
+    already installed, overlaid with what has just been downloaded.
+    """
+    info = {
+        f"{entry['namespace']}/{entry['name']}": (
+            entry.get("language", ""),
+            bool(entry.get("library")),
+        )
+        for entry in lock["packages"]
+    }
+    for item in staged:
+        package = item.manifest.package
+        info[f"{package.namespace}/{package.name}"] = (
+            language_tag(item.manifest),
+            is_library(item.manifest),
+        )
+    return info
+
+
+def verify_library_languages(staged: list[Staged], lock: dict) -> None:
+    """Re-check D57's sourcing rule against the manifests actually downloaded.
+
+    The resolver enforced this server-side already; this is the client declining
+    to take the index's word for it, the same instinct that re-hashes every blob
+    and re-validates every manifest after download (D42/D46). Raised before any
+    file is written, so an incompatible closure installs nothing.
+    """
+    info = _closure_languages(staged, lock)
+    for item in staged:
+        package = item.manifest.package
+        consumer = f"{package.namespace}/{package.name}"
+        consumer_language = language_tag(item.manifest)
+        for target in sorted(item.manifest.dependencies.packages):
+            language, target_is_library = info.get(target, ("", False))
+            if not target_is_library:
+                continue
+            if not language_satisfies(consumer_language, language):
+                raise RemoteInstallError(
+                    f"'{consumer}' is written in {consumer_language} and cannot"
+                    f" source library '{target}' ({language})"
+                )
+
+
 def apply_remote(plan: RemotePlan, staged: list[Staged], home: Path) -> None:
     """Commit the staged closure: unpack each package (dependencies first),
     write its shims, and record the whole closure in the lockfile with
@@ -387,6 +434,7 @@ def apply_remote(plan: RemotePlan, staged: list[Staged], home: Path) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
 
     lock = read_lockfile(home)
+    verify_library_languages(staged, lock)  # before any mutation (D17)
     provenance = {"type": "remote", "remote": plan.remote.name, "url": plan.remote.url}
     staged_by_id = {(s.resolved.namespace, s.resolved.name): s for s in staged}
 
@@ -411,6 +459,7 @@ def apply_remote(plan: RemotePlan, staged: list[Staged], home: Path) -> None:
             resolved.content_hash,
             dict(resolved.commands),
             snippet_variants(entity.manifest, entity.package_root),
+            library_entrypoint(entity.manifest) if is_library(entity.manifest) else None,
             direct=resolved.direct or bool(existing and existing.get("direct")),
             provenance=provenance,
             dependencies=dict(entity.manifest.dependencies.packages),

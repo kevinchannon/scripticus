@@ -30,13 +30,17 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from scripticus import libraries
+from scripticus_common.language_compat import LIBRARY_LANGUAGES
 from scripticus_common.semver import semver_key
 from scripticus_common.treehash import tree_hash
 from scripticus_schema.manifest import (
     LANGUAGES,
     Manifest,
     commands_of,
+    is_library,
     language_tag,
+    library_entrypoint,
     load_manifest,
     snippet_variants,
     target_platforms,
@@ -156,6 +160,8 @@ class Transaction:
     # Snippet name -> its sorted extensions, derived from the staged tree
     # (D58). Empty for every kind but a snippet package.
     snippets: dict[str, list[str]] = field(default_factory=dict)
+    # The ``src/load.<ext>`` a library is sourced from (D57); None otherwise.
+    library: str | None = None
     required_tools: list[Tool] = field(default_factory=list)
     optional_tools: list[Tool] = field(default_factory=list)
     conflicts: list[Conflict] = field(default_factory=list)
@@ -251,6 +257,7 @@ def prepare_install(archive: Path, home: Path) -> Transaction:
             installed_version=installed_version,
             commands=commands,
             snippets=snippet_variants(manifest, package_root),
+            library=library_entrypoint(manifest) if is_library(manifest) else None,
             required_tools=required_tools,
             optional_tools=optional_tools,
             conflicts=conflicts,
@@ -267,14 +274,39 @@ def _shim_path(bin_dir: Path, command: str) -> Path:
     return bin_dir / (f"{command}.cmd" if os.name == "nt" else command)
 
 
-def _write_shim(bin_dir: Path, command: str, script: Path, language: str) -> None:
+def _write_shim(bin_dir: Path, command: str, script: Path, language: str, home: Path) -> None:
+    """Write the fully-qualified shim for one command.
+
+    A shell command gets the *source-wrapper* form (D57): the shim exports
+    ``SCRIPTICUS_LIB``, sources the loader, then sources the script rather than
+    ``exec``ing it, which is the only way to put a shell *function* like
+    ``scr_load`` in front of a script that did not ask for one. Positional
+    parameters pass through a dot-source untouched, and the shim exits with the
+    script's status; the visible cost is that ``$0`` inside the script is the
+    shim. Every other language keeps the one-line ``exec`` wrapper — nothing
+    outside the shell family can source anything anyway.
+    """
     lang = LANGUAGES[language]
     shim = _shim_path(bin_dir, command)
     if os.name == "nt":
+        # Windows shims stay plain: cmd.exe cannot source a POSIX loader, so a
+        # bash package there gets its script run without scr_load in scope.
         shim.write_text(f'@echo off\r\n{lang.windows_interpreter} "{script}" %*\r\n')
+        return
+    if language in LIBRARY_LANGUAGES:
+        # The loader is guaranteed present at install time, but the guard means
+        # a user who deletes ~/.scripticus/lib gets a working command rather
+        # than an error on stderr every single run.
+        shim.write_text(
+            f"#!/usr/bin/env {lang.interpreter}\n"
+            f'export SCRIPTICUS_LIB="{libraries.lib_root(home)}"\n'
+            f'[ -f "$SCRIPTICUS_LIB/{libraries.LOADER_NAME}" ]'
+            f' && . "$SCRIPTICUS_LIB/{libraries.LOADER_NAME}"\n'
+            f'. "{script}"\n'
+        )
     else:
         shim.write_text(f'#!/bin/sh\nexec {lang.interpreter} "{script}" "$@"\n')
-        shim.chmod(0o755)
+    shim.chmod(0o755)
 
 
 def _write_delegating_shim(bin_dir: Path, shim_name: str, target_name: str) -> None:
@@ -301,6 +333,7 @@ def install_into_lock(
     content_hash: str,
     commands: dict[str, str],
     snippets: dict[str, list[str]],
+    library: str | None,
     direct: bool,
     provenance: dict,
     dependencies: dict,
@@ -319,6 +352,11 @@ def install_into_lock(
     `snip` reads it from there (D58). Nothing records ownership of a snippet
     name — an ambiguous one lists rather than resolving to a winner — so
     installing a snippet package can never disturb another.
+
+    A library is the same story with a different index: no commands and no
+    shims, but a generated wrapper under ``lib/<namespace>/<name>/`` that
+    ``scr_load`` finds by name (D57). It is rewritten on every install, which is
+    what re-points the version-less path at a new version.
     """
     install_dir = home / "pkgs" / namespace / name / version
     if install_dir.exists():
@@ -339,13 +377,26 @@ def install_into_lock(
         for shim in previous.get("shims", []):
             if shim_command(shim) not in commands:
                 _shim_path(bin_dir, shim).unlink(missing_ok=True)
+        # A version that stopped being a library leaves nothing sourceable
+        # behind; the staged wrapper would otherwise point into a deleted tree.
+        if previous.get("library") and library is None:
+            libraries.remove_library(home, namespace, name)
         lock["packages"].remove(previous)
+
+    # A shell command's shim sources the loader, so it has to exist — even for
+    # a package that has nothing to do with libraries and a user who never ran
+    # `init`.
+    if commands and language in LIBRARY_LANGUAGES:
+        libraries.install_loader(home)
 
     for command, script in commands.items():
         target = fq_shim(namespace, name, command)
-        _write_shim(bin_dir, target, install_dir / script, language)
+        _write_shim(bin_dir, target, install_dir / script, language, home)
         for shim in (command, ns_shim(namespace, command)):
             _write_delegating_shim(bin_dir, shim, target)
+
+    if library is not None:
+        libraries.stage_library(home, namespace, name, install_dir, library)
 
     # Convenience shims are last-install-wins (D11/D38): every one this
     # package now owns is taken from whichever other entry previously held it
@@ -363,6 +414,7 @@ def install_into_lock(
             "content_hash": content_hash,
             "commands": sorted(commands),
             "snippets": {name: list(snippets[name]) for name in sorted(snippets)},
+            "library": library,
             "shims": sorted(owned),
             "direct": direct,
             "provenance": provenance,
@@ -390,6 +442,7 @@ def apply_install(transaction: Transaction, home: Path) -> None:
         transaction.content_hash,
         transaction.commands,
         transaction.snippets,
+        transaction.library,
         direct=True,
         provenance={"type": "local", "source": str(transaction.source.resolve())},
         # Local installs are dependency-free: resolve_dependencies rejects any

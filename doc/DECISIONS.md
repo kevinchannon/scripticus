@@ -1788,9 +1788,38 @@ transitive, idempotent (an include-guard, so diamonds are safe), and soft-fail
 `scr_load` is available in two contexts — auto-injected into commands Scripticus
 launches through their shims, and opt-in for a user's own scripts via
 `scripticus init` (which gains the `$SCRIPTICUS_LIB` export alongside its PATH
-bootstrap, D39). `new` gains a `--cmd`/`--lib` flag to scaffold either. Post-v1,
-unscheduled; full shape in the roadmap. (Importing an existing script into a
-package — an `import` command — is a separate, out-of-scope discussion.)
+bootstrap, D39). `new` gains a `--lib` flag to scaffold one. (Importing an
+existing script into a package — an `import` command — is a separate,
+out-of-scope discussion.)
+
+**Settled at implementation** (the two deferred questions, plus what the code
+forced):
+- **Injection is a source-wrapper shim.** A shell package's fully-qualified shim
+  sources the loader and then the script instead of `exec`ing it — the only way
+  to put a *function* in front of a script that did not ask for one, and the
+  only one that serves `sh` as well as `bash` (`BASH_ENV` is bash-only). Other
+  languages keep the `exec` one-liner; Windows `.cmd` shims are unchanged, so a
+  shell package there runs without `scr_load` in scope.
+- **Staging is a generated wrapper, not a symlink.**
+  `lib/<ns>/<name>/load.sh` sets `SCR_LIB_DIR` to the versioned tree and sources
+  its entry point. Version-less without symlink privileges, and an upgrade is a
+  one-file rewrite. `SCR_LIB_DIR` is also how a multi-file library reaches its
+  own siblings, which POSIX sh otherwise makes impossible; `scr_load` saves and
+  restores it across a nested load.
+- **Discovery is the `kind` tag alone** (D58's field): `search` matches a
+  library's name and description, since it has no command or snippet names to
+  offer. No manifest-declared exports — the manifest still enumerates nothing.
+- **An orphaned library is reported, never removed.** `uninstall` names
+  libraries nothing left depends on and stops there, exactly as it already
+  leaves orphaned *command* packages alone. A general `autoremove` is the right
+  home for the other behaviour.
+- **`new --lib` only**, not the mooted `--cmd`/`--lib` pair: `--snippet` already
+  established flag-with-command-as-default.
+- **A library requires `[platforms]`** like a command package. The `any` tag
+  stays snippet-only: a library is real shell for real platforms.
+- **`language_satisfies` guards the consumer side too.** The rule as stated
+  above (`L == "sh" or L == C`) read literally lets a `python` consumer "source"
+  an `sh` library; the implementation requires the consumer to be a shell first.
 
 **Reason**: Shell is the one common scripting language with no native
 library-distribution mechanism — every nontrivial shell project reinvents a
@@ -1820,9 +1849,10 @@ subprocess per `source`; consumer-language-as-requirement reuses the existing
   source" — a subtle overload of one field.
 - Bad: two availability contexts (shim injection + `init` global) are two code
   paths to build and document.
-- Bad: two questions are left open — how command-less libraries surface in
-  `search`/`list`, and whether an orphaned library is auto-removed on uninstall
-  (à la D28/D44) — deferred to implementation.
+- Bad: the source-wrapper shim is a second shim shape, and a sourced script sees
+  the shim as `$0` rather than itself.
+- Bad: shell packages on Windows get no loader — `cmd.exe` cannot source one —
+  so libraries are POSIX-only in practice even where bash is installed.
 - Bad: per D14 nothing verifies a `load` script is actually sourceable or used;
   a broken library surfaces only at the consumer's runtime.
 

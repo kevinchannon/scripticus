@@ -186,19 +186,30 @@ def search(
 def _summarize(package: db.Package, candidates: list[db.PackageVersion]) -> PackageSummary:
     """A package's search/list row: identity plus its latest non-yanked
     version's number and description, and — for a snippet package — the
-    ``name.ext`` tokens `snip` will take (D58)."""
+    ``name.ext`` tokens `snip` will take (D58).
+
+    The kind comes from the publish-time projections: a version has snippet rows,
+    or a library row, or neither (D57/D58). A library has nothing runnable and no
+    tokens to offer, so its row is identity and description alone — which is why
+    `search` matching name and description is the whole of library discovery."""
     latest = max(candidates, key=lambda pv: semver_key(pv.version))
     snippets = [
         f"{snippet.name}.{extension}"
         for snippet in sorted(latest.snippets, key=lambda s: s.name)
         for extension in snippet.extension_list()
     ]
+    if latest.snippets:
+        kind = "snippet"
+    elif latest.libraries:
+        kind = "library"
+    else:
+        kind = "command"
     return PackageSummary(
         namespace=package.namespace.name,
         name=package.name,
         description=latest.description,
         latest_version=latest.version,
-        kind="snippet" if latest.snippets else "command",
+        kind=kind,
         snippets=snippets,
     )
 
