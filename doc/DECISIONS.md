@@ -2028,3 +2028,50 @@ cannot break downstream.
 - Bad: a reserved-name list is a thing that can grow; nothing else belongs on it
   today (`.pkg`, `.dmg`, `.command` and `.workflow` were all checked and execute
   normally), but the precedent invites future additions.
+
+## D61. `get-scripticus-svr`: a bootstrap script is the registry's install path
+
+**Decision**: The documented way to stand up a registry is a single POSIX-sh
+script at the repo root, fetched and run. It preflights the host (docker
+present and running, the compose v2 plugin at the version the bundle's inline
+config needs), downloads `docker-compose.yml`, brings the stack up, waits for
+Gitea, and creates an admin account with a `write:package,read:user` token via
+`gitea admin user create`, printing the generated password and token once. It
+prompts only for the install directory, from `/dev/tty` so a piped `sh` still
+works, and takes `--dir`/`--user`/`--email`/`--port`/`--gitea-port` for the
+non-interactive case. It refuses rather than repairs: a non-empty target
+directory, an existing compose project of the same name, or an existing Gitea
+user each stop the run with an explanation and a non-zero exit.
+
+**Reason**: The compose file alone left the operator to discover Gitea's token
+scopes from a permissions grid of ten rows, where the wrong guess surfaces
+later as an unexplained publish failure — `can_publish` reads every sub-500
+response as "not permitted", so a missing scope is indistinguishable from a
+denied one. A script can also state the host requirements it depends on
+(D45's inline config needs compose 2.23.1+) as a named error instead of a
+YAML-shaped mystery. Refusing rather than repairing keeps it from half-owning
+a registry it cannot describe the state of: the credentials it prints exist
+exactly once, so a re-run that "fixed things up" would be a re-run that
+silently invalidated whatever the operator had saved.
+
+**Consequences**:
+- Good: one fetched artifact, and the only real decision (where it lives) is
+  asked rather than assumed. The compose file becomes an implementation
+  detail the script downloads, so D45's inline Caddyfile stays load-bearing.
+- Good: the token is minted with exactly the scopes the server calls, so a
+  scope mistake cannot become a publish-time mystery.
+- Good: opens the path to distributing the script from a public repo, with the
+  client fetching it — the server standup would then start at `pipx install
+  scripticus`.
+- Neutral: host ports became `${SCRIPTICUS_PORT}`/`${SCRIPTICUS_GITEA_PORT}`
+  in the compose file, defaulting to the 8000/3000 the docs quote, so a second
+  stack can coexist.
+- Bad: the password and token are scraped out of the Gitea CLI's
+  human-readable output, which no compatibility promise covers; an unparsed
+  format is a hard failure rather than a blank secret, but it is a real
+  coupling to a Gitea version.
+- Bad: a shell script standing between the operator and `docker compose up` is
+  another thing to maintain, and it carries no test suite — the BATS e2e suite
+  bootstraps via `scripts/start-server`, not this.
+- Bad: "refuse and exit" means a run interrupted after user creation leaves a
+  stack the script will not touch again; recovery is `down -v` or the web UI.

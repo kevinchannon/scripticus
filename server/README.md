@@ -18,9 +18,29 @@ releases publish a Docker image to
 The proxy is the single URL clients use (`http://localhost:8000`): it routes
 blob downloads to Gitea and everything else to the index, so a client needs
 no Gitea address of its own (D45). Gitea's web UI stays on
-`http://localhost:3000` for first-run setup. That compose file is the whole
-deployment — the proxy's routing config is inline, so there is nothing else to
-fetch (it does need Docker Compose v2.23.1 or newer).
+`http://localhost:3000` for first-run setup.
+
+The `get-scripticus-svr` script does the whole standup (D61) — it checks the
+host, fetches the compose bundle, starts it, and creates your Gitea admin
+account with a correctly-scoped publish token:
+
+```console
+$ curl -fsSLO https://raw.githubusercontent.com/kevinchannon/scripticus/main/get-scripticus-svr
+$ sh get-scripticus-svr
+```
+
+It asks where to put the stack and prints a username, password, and token at
+the end. **Save all three then** — Gitea shows a token once, and the script
+will not mint a second one for an account that already exists. `--dir`,
+`--user`, `--email`, `--port`, and `--gitea-port` cover the non-interactive
+case; `--help` lists them.
+
+It refuses rather than repairs: an existing directory, compose stack, or Gitea
+user stops the run rather than modifying what is already there. It needs
+Docker, the Compose v2 plugin at v2.23.1 or newer (the bundle carries its proxy
+config inline), and either `curl` or `wget`.
+
+Standing it up by hand works too — the compose file is self-contained:
 
 ```console
 $ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
@@ -29,16 +49,21 @@ $ curl http://localhost:8000/health
 {"status":"ok"}
 ```
 
-First-run Gitea setup: accounts and organisations are managed in Gitea
-(http://localhost:3000), and a Scripticus namespace *is* a Gitea user or
-organisation, claimed first-come-first-served, with publish rights
-following Gitea's own membership and ACLs. So, once the bundle is up:
+That leaves the Gitea side to you. Accounts and organisations are managed in
+Gitea (http://localhost:3000), and a Scripticus namespace *is* a Gitea user or
+organisation, claimed first-come-first-served, with publish rights following
+Gitea's own membership and ACLs. So, once the bundle is up:
 
 1. Register your user in the Gitea web UI (the first registered user is
    the instance admin), and create an organisation for any shared
    namespace you want.
 2. Generate a token under *Settings → Applications → Manage Access
-   Tokens* with package write and user read scopes.
+   Tokens*. It needs **package: Read and Write** (blob upload on publish,
+   download on install) and **user: Read** (resolving the token to a login).
+   Add **organization: Read** if you will publish under an organisation
+   namespace rather than your own username — without it the membership check
+   fails, and since every non-server response reads as "not permitted", you
+   get a permission error rather than a scope error.
 3. Publish with that token (see [Publishing](#publishing) below).
 
 ### Running the index service directly

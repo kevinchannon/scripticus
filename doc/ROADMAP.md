@@ -42,6 +42,11 @@ client-side state); usage and authoring are in the
 
 - [ ] Public/multi-tenant hosting model (same client, different default
       remote/resolution configuration).
+- [ ] Distribute `get-scripticus-svr` (D61) from a public repo and have the
+      client fetch it, so standing a registry up starts at `pipx install
+      scripticus` — one install path for both halves, and no raw URL to copy.
+      The script is already self-contained and takes its compose source from
+      `SCRIPTICUS_COMPOSE_URL`, so this is a delivery change, not a rewrite.
 - [ ] Cryptographic assurance layer: artifact signing and verification
       (Sigstore/cosign-style), enabled by the existing content-addressed
       identity without changes to storage or reference formats.

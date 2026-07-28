@@ -1,0 +1,285 @@
+#!/bin/sh
+# get-scripticus-svr — stand up a Scripticus registry in one command (D61).
+#
+# Fetches the compose bundle, brings it up, and bootstraps Gitea with an admin
+# account and a correctly-scoped publish token, printing both at the end. The
+# alternative is a curl, a compose invocation, and a five-step trip through
+# Gitea's web UI to find the right token scopes; this is that, without the
+# guesswork.
+#
+#   sh get-scripticus-svr                  # into ./scripticus-svr
+#   sh get-scripticus-svr --dir /srv/reg --user alice --port 9000
+#
+# POSIX sh on purpose: it is fetched and run on machines we know nothing about,
+# and it must behave the same when piped to `sh` (prompts would break there, so
+# there are none — see D61 on the printed random password).
+#
+# It refuses rather than repairs. An existing directory, stack, or Gitea user
+# stops the run with an explanation, because the alternative is a script that
+# half-owns somebody's registry and cannot tell you what state it left behind.
+set -eu
+
+RAW_BASE="https://raw.githubusercontent.com/kevinchannon/scripticus"
+REF="${SCRIPTICUS_REF:-main}"
+# Full override for the compose file's location — a fork, an internal mirror,
+# an air-gapped copy, or a file:// URL when testing this script's own changes
+# before they are pushed anywhere.
+COMPOSE_URL="${SCRIPTICUS_COMPOSE_URL:-$RAW_BASE/$REF/docker-compose.yml}"
+
+DIR="scripticus-svr"
+DIR_GIVEN=""
+USERNAME=""
+EMAIL=""
+PORT="8000"
+GITEA_PORT="3000"
+TOKEN_NAME="scripticus-publish"
+# The scopes the index service actually needs: write:package for blob
+# upload/download, read:user to resolve a token to a login. read:organization
+# is added only when publishing under an org namespace (server/README.md).
+TOKEN_SCOPES="write:package,read:user"
+# Inline `configs` content in the compose file (D45) needs this or newer.
+MIN_COMPOSE="2.23.1"
+
+BOLD=''; RED=''; GREEN=''; YELLOW=''; NC=''
+if [ -t 2 ]; then
+    BOLD=$(printf '\033[1m'); RED=$(printf '\033[0;31m')
+    GREEN=$(printf '\033[0;32m'); YELLOW=$(printf '\033[0;33m')
+    NC=$(printf '\033[0m')
+fi
+
+# Progress goes to stderr; the credential summary at the end goes to stdout, so
+# `get-scripticus-svr > creds.txt` captures the secrets and nothing else.
+info() { printf '%s▶ %s%s\n' "$GREEN" "$*" "$NC" >&2; }
+warn() { printf '%s! %s%s\n' "$YELLOW" "$*" "$NC" >&2; }
+die() { printf '%s✗ %s%s\n' "$RED" "$*" "$NC" >&2; exit 1; }
+
+usage() {
+    cat >&2 <<EOF
+Usage: get-scripticus-svr [options]
+
+  --dir <path>      where to put the stack (default: ./$DIR); skips the prompt
+  --user <name>     Gitea admin username; this is also a Scripticus namespace,
+                    so use a real identity (default: your login name)
+  --email <addr>    admin email (default: <user>@example.invalid)
+  --port <n>        host port for the registry front (default: $PORT)
+  --gitea-port <n>  host port for Gitea's web UI (default: $GITEA_PORT)
+  --help            this message
+
+Environment:
+  SCRIPTICUS_REF          git ref to fetch the bundle from (default: main)
+  SCRIPTICUS_COMPOSE_URL  full override for the compose file's URL, for a
+                          fork, an internal mirror, or an air-gapped copy
+EOF
+    exit "${1:-0}"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; DIR_GIVEN=yes; shift 2 ;;
+        --user) [ $# -ge 2 ] || die "--user needs a value"; USERNAME="$2"; shift 2 ;;
+        --email) [ $# -ge 2 ] || die "--email needs a value"; EMAIL="$2"; shift 2 ;;
+        --port) [ $# -ge 2 ] || die "--port needs a value"; PORT="$2"; shift 2 ;;
+        --gitea-port) [ $# -ge 2 ] || die "--gitea-port needs a value"; GITEA_PORT="$2"; shift 2 ;;
+        --help|-h) usage 0 ;;
+        *) printf '%sunknown option: %s%s\n' "$RED" "$1" "$NC" >&2; usage 1 ;;
+    esac
+done
+
+[ -n "$USERNAME" ] || USERNAME=$(id -un)
+[ -n "$EMAIL" ] || EMAIL="$USERNAME@example.invalid"
+
+# Where the stack lives is the one choice worth confirming: it is the directory
+# the operator will come back to for every `docker compose` from here on, and
+# silently landing it in whatever the cwd happened to be is a poor surprise.
+# Read from /dev/tty, not stdin, so this still works under `curl ... | sh`
+# (where stdin is the script). No tty — CI, a pipe with no terminal — takes the
+# default, so the script never blocks on a prompt it cannot show.
+if [ -z "$DIR_GIVEN" ] && [ -e /dev/tty ] && { : >/dev/tty; } 2>/dev/null; then
+    printf '%sWhere should the registry live?%s [%s] ' "$BOLD" "$NC" "$DIR" >/dev/tty
+    read -r reply </dev/tty || reply=""
+    [ -z "$reply" ] || DIR="$reply"
+fi
+
+# Expand a leading ~ ourselves: it arrives literal from `read`, and a directory
+# named '~' in the cwd is never what anyone meant.
+case "$DIR" in
+    "~") DIR="$HOME" ;;
+    "~/"*) DIR="$HOME/${DIR#"~/"}" ;;
+esac
+
+# Compose derives its project name from the directory holding the compose file;
+# doing the same means --dir gives a genuinely independent stack rather than one
+# that collides with an existing install. Project names are [a-z0-9][a-z0-9_-]*.
+PROJECT=$(basename "$DIR" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')
+PROJECT=${PROJECT%%-}
+case "$PROJECT" in
+    [a-z0-9]*) ;;
+    *) PROJECT="scripticus-$PROJECT" ;;
+esac
+
+# --- preflight -------------------------------------------------------------
+# Every check below fails the run before anything is created, so a machine that
+# cannot host the stack is told so while the disk is still untouched.
+
+info "checking prerequisites"
+
+if command -v curl >/dev/null 2>&1; then
+    fetch() { curl -fsSL "$1"; }
+elif command -v wget >/dev/null 2>&1; then
+    fetch() { wget -qO- "$1"; }
+else
+    die "need curl or wget to download the compose file"
+fi
+
+command -v docker >/dev/null 2>&1 \
+    || die "docker is not installed — see https://docs.docker.com/get-docker/"
+docker info >/dev/null 2>&1 \
+    || die "the docker daemon is not reachable (is Docker running?)"
+
+COMPOSE_VERSION=$(docker compose version --short 2>/dev/null) \
+    || die "the docker compose v2 plugin is missing — 'docker compose version' failed"
+
+# Numeric dotted compare, field by field. `sort -V` is not POSIX and is absent
+# on enough systems to be worth avoiding in a bootstrap script.
+version_ge() {
+    _have="$1"; _want="$2"
+    IFS=. read -r h1 h2 h3 <<EOF
+${_have%%-*}
+EOF
+    IFS=. read -r w1 w2 w3 <<EOF
+$_want
+EOF
+    h1=${h1:-0}; h2=${h2:-0}; h3=${h3:-0}
+    w1=${w1:-0}; w2=${w2:-0}; w3=${w3:-0}
+    [ "$h1" -gt "$w1" ] && return 0
+    [ "$h1" -lt "$w1" ] && return 1
+    [ "$h2" -gt "$w2" ] && return 0
+    [ "$h2" -lt "$w2" ] && return 1
+    [ "$h3" -ge "$w3" ]
+}
+
+CLEAN_VERSION=${COMPOSE_VERSION#v}
+if ! version_ge "$CLEAN_VERSION" "$MIN_COMPOSE"; then
+    die "docker compose $MIN_COMPOSE or newer is required (found $COMPOSE_VERSION).
+   The bundle carries its proxy config inline, which older versions ignore."
+fi
+info "docker compose $COMPOSE_VERSION"
+
+# --- refuse rather than repair ---------------------------------------------
+
+if [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null || true)" ]; then
+    die "$DIR already exists and is not empty.
+   Refusing to write into it. Remove it, or pass --dir somewhere else."
+fi
+
+if [ -n "$(docker compose -p "$PROJECT" ps -aq 2>/dev/null || true)" ]; then
+    die "a '$PROJECT' compose stack already exists on this machine.
+   Refusing to touch it. Inspect it with:
+       docker compose -p $PROJECT ps
+   and remove it with 'docker compose -p $PROJECT down -v' if it is disposable."
+fi
+
+# --- stand the bundle up ---------------------------------------------------
+
+info "fetching docker-compose.yml ($REF)"
+mkdir -p "$DIR"
+cd "$DIR"
+fetch "$COMPOSE_URL" > docker-compose.yml \
+    || die "could not download the compose file from $COMPOSE_URL"
+[ -s docker-compose.yml ] || die "downloaded an empty compose file — aborting"
+
+SCRIPTICUS_PORT="$PORT"
+SCRIPTICUS_GITEA_PORT="$GITEA_PORT"
+export SCRIPTICUS_PORT SCRIPTICUS_GITEA_PORT
+
+info "starting the stack (proxy + index + Gitea)"
+if ! docker compose -p "$PROJECT" up -d; then
+    die "the stack failed to start.
+   If that was a port clash, re-run with --port/--gitea-port on free ports."
+fi
+
+info "waiting for Gitea"
+ready=""
+i=0
+while [ "$i" -lt 90 ]; do
+    if fetch "http://localhost:$GITEA_PORT/api/healthz" >/dev/null 2>&1; then
+        ready=yes
+        break
+    fi
+    sleep 2
+    i=$((i + 1))
+done
+[ -n "$ready" ] || die "Gitea did not come up within 3 minutes.
+   Check 'docker compose -p $PROJECT logs gitea'."
+
+# --- bootstrap the admin account -------------------------------------------
+# The Gitea CLI runs as the 'git' user; as root it refuses.
+gitea_cli() { docker compose -p "$PROJECT" exec -T -u git gitea gitea "$@"; }
+
+if gitea_cli admin user list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$USERNAME"; then
+    die "Gitea already has a user '$USERNAME'.
+   Refusing to touch an existing account. Its original token cannot be
+   re-read (Gitea shows it once), so mint a new one in the web UI at
+   http://localhost:$GITEA_PORT — Settings > Applications, with the
+   '$TOKEN_SCOPES' scopes."
+fi
+
+info "creating admin user '$USERNAME' and a publish token"
+created=$(gitea_cli admin user create \
+    --admin \
+    --username "$USERNAME" \
+    --email "$EMAIL" \
+    --random-password \
+    --must-change-password=false \
+    --access-token \
+    --access-token-name "$TOKEN_NAME" \
+    --access-token-scopes "$TOKEN_SCOPES" 2>&1) \
+    || die "creating the admin user failed:
+$created"
+
+# Parsed out of the CLI's human-readable output, which is the only place it
+# exists — so an unrecognised format is a hard failure, never a blank secret.
+PASSWORD=$(printf '%s\n' "$created" | sed -n "s/.*generated random password is '\(.*\)'.*/\1/p")
+TOKEN=$(printf '%s\n' "$created" | sed -n 's/.*Access token was successfully created\.\.\. *//p')
+
+if [ -z "$PASSWORD" ] || [ -z "$TOKEN" ]; then
+    die "could not read the password and token back from Gitea. It said:
+$created
+   The account may exist. Check http://localhost:$GITEA_PORT before re-running."
+fi
+
+# --- the bit that matters --------------------------------------------------
+
+cat <<EOF
+
+${BOLD}${YELLOW}+---------------------------------------------------------------+
+|  SAVE THESE NOW. THEY ARE SHOWN ONCE AND CANNOT BE RECOVERED. |
++---------------------------------------------------------------+${NC}
+
+  ${BOLD}Registry URL${NC}   http://localhost:$PORT
+  ${BOLD}Gitea web UI${NC}   http://localhost:$GITEA_PORT
+
+  ${BOLD}Username${NC}       $USERNAME
+  ${BOLD}Password${NC}       $PASSWORD
+  ${BOLD}Token${NC}          $TOKEN
+
+${YELLOW}The password can be reset from the Gitea web UI, but the token cannot
+be shown again — losing it means minting a replacement.${NC}
+
+Put the token to work:
+
+  pipx install scripticus
+  scripticus login http://localhost:$PORT
+
+Your username is also your Scripticus namespace (D4), so you publish as
+${BOLD}$USERNAME/<package>${NC}. Anyone else who publishes here needs their own
+Gitea account; this one is yours.
+
+Manage the stack from ${BOLD}$(pwd)${NC}:
+
+  docker compose -p $PROJECT ps
+  docker compose -p $PROJECT logs -f
+  docker compose -p $PROJECT down          # stop, keep the data
+  docker compose -p $PROJECT down -v       # stop and delete everything
+
+EOF

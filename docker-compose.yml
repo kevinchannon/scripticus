@@ -16,8 +16,10 @@
 services:
   proxy:
     image: caddy:2-alpine
+    # Host ports are overridable so a second stack (or a host already using
+    # 8000/3000) can coexist; the defaults are what the docs quote.
     ports:
-      - "8000:80"
+      - "${SCRIPTICUS_PORT:-8000}:80"
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
@@ -44,9 +46,9 @@ services:
     # minting a publish token); the client never needs this address (D45).
     environment:
       GITEA__security__INSTALL_LOCK: "true"
-      GITEA__server__ROOT_URL: http://localhost:3000/
+      GITEA__server__ROOT_URL: http://localhost:${SCRIPTICUS_GITEA_PORT:-3000}/
     ports:
-      - "3000:3000"
+      - "${SCRIPTICUS_GITEA_PORT:-3000}:3000"
     volumes:
       - gitea-data:/data
 
