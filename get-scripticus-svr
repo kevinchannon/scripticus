@@ -113,13 +113,16 @@ esac
 
 # Compose derives its project name from the directory holding the compose file;
 # doing the same means --dir gives a genuinely independent stack rather than one
-# that collides with an existing install. Project names are [a-z0-9][a-z0-9_-]*.
-PROJECT=$(basename "$DIR" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')
-PROJECT=${PROJECT%%-}
-case "$PROJECT" in
-    [a-z0-9]*) ;;
-    *) PROJECT="scripticus-$PROJECT" ;;
-esac
+# that collides with an existing install. Project names are [a-z0-9][a-z0-9_-]*,
+# so lowercase, replace what is not allowed, and drop any leading remainder —
+# a '.registry' becomes 'registry' rather than something with a prefix bolted
+# on. printf, not echo, so no trailing newline reaches tr and becomes a '-'.
+PROJECT=$(printf '%s' "$(basename "$DIR")" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9_-' '-' \
+    | sed 's/^[^a-z0-9]*//')
+# Only reachable if the name had no usable character in it at all.
+[ -n "$PROJECT" ] || PROJECT="scripticus"
 
 # --- preflight -------------------------------------------------------------
 # Every check below fails the run before anything is created, so a machine that
@@ -186,33 +189,23 @@ fi
 # --- stand the bundle up ---------------------------------------------------
 
 info "fetching docker-compose.yml ($REF)"
-# If the download fails we take the directory back out, so a failed run leaves
-# nothing behind — otherwise the empty dir the next attempt finds is a dir the
-# next attempt refuses to use.
-CREATED_DIR=""
-[ -d "$DIR" ] || CREATED_DIR=yes
-mkdir -p "$DIR"
-cd "$DIR"
-# Resolved after the cd, so the cleanup below is not confused by a relative or
-# nested --dir once the working directory has moved.
-ABS_DIR=$(pwd)
+# Download somewhere disposable and only move it into place once it looks like
+# a file worth keeping. A failed run then leaves nothing behind by construction,
+# rather than by unwinding what it had already created — and an empty directory
+# left by a failure is not cosmetic, it is what the *next* run refuses to use.
+TMP=$(mktemp -d 2>/dev/null) || die "could not create a temporary directory"
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 
-undo_dir() {
-    rm -f "$ABS_DIR/docker-compose.yml"
-    if [ -n "$CREATED_DIR" ]; then
-        cd /
-        rmdir "$ABS_DIR" 2>/dev/null || true
-    fi
-}
-
-if ! fetch "$COMPOSE_URL" > docker-compose.yml; then
-    undo_dir
+if ! fetch "$COMPOSE_URL" > "$TMP/docker-compose.yml"; then
     die "could not download the compose file from $COMPOSE_URL"
 fi
-if [ ! -s docker-compose.yml ]; then
-    undo_dir
-    die "downloaded an empty compose file from $COMPOSE_URL — aborting"
-fi
+[ -s "$TMP/docker-compose.yml" ] \
+    || die "downloaded an empty compose file from $COMPOSE_URL — aborting"
+
+mkdir -p "$DIR" || die "could not create $DIR"
+mv "$TMP/docker-compose.yml" "$DIR/docker-compose.yml" \
+    || die "could not write docker-compose.yml into $DIR"
+cd "$DIR"
 
 SCRIPTICUS_PORT="$PORT"
 SCRIPTICUS_GITEA_PORT="$GITEA_PORT"
@@ -297,7 +290,7 @@ Put the token to work:
   pipx install scripticus
   scripticus login http://localhost:$PORT
 
-Your username is also your Scripticus namespace (D4), so you publish as
+Your username is also your Scripticus namespace, so you publish as
 ${BOLD}$USERNAME/<package>${NC}. Anyone else who publishes here needs their own
 Gitea account; this one is yours.
 

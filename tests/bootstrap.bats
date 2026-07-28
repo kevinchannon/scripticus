@@ -208,6 +208,29 @@ STUBEOF
     [[ "$output" == *"'my-registry' compose stack already exists"* ]]
 }
 
+@test "a directory that cannot start a project name is trimmed, not prefixed" {
+    # Compose project names must begin with [a-z0-9]. Trimming the leading
+    # remainder gives 'registry'; bolting a prefix on would give a name with
+    # the project's own name doubled up in front of it.
+    FAKE_EXISTING_PROJECT=registry run sh "$SCRIPT" --dir "$WORK/.registry"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"'registry' compose stack already exists"* ]]
+}
+
+@test "a directory named only in punctuation still yields a usable project name" {
+    FAKE_EXISTING_PROJECT=scripticus run sh "$SCRIPT" --dir "$WORK/..."
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"'scripticus' compose stack already exists"* ]]
+}
+
+@test "a common install directory is not given a redundant prefix" {
+    # 'scripticus-svr' is what most people will call it; the project name
+    # should be that, not 'scripticus-scripticus-svr'.
+    FAKE_EXISTING_PROJECT=scripticus-svr run sh "$SCRIPT" --dir "$WORK/scripticus-svr"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"'scripticus-svr' compose stack already exists"* ]]
+}
+
 @test "a trailing slash on --dir does not produce an empty project name" {
     FAKE_EXISTING_PROJECT=reg run sh "$SCRIPT" --dir "$WORK/reg/"
     [ "$status" -ne 0 ]
