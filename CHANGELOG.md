@@ -52,3 +52,7 @@ Releases before this file exists are recorded only in the git tags and in
 - `scripticus new <sh|bash> <name> --lib` scaffolds a library package.
 - `uninstall` reports libraries nothing left depends on rather than removing
   them, and `list`/`search` tag a library row as such.
+- Fixed: a command named `app` was completely unusable on macOS, which refuses
+  to execute a file named `*.app` and SIGKILLs it without output. All three of
+  its shim tiers were affected, the bare one via its delegation. Such shims are
+  now written as a sidecar plus a symlink on macOS; the names are unchanged.

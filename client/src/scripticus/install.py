@@ -274,6 +274,53 @@ def _shim_path(bin_dir: Path, command: str) -> Path:
     return bin_dir / (f"{command}.cmd" if os.name == "nt" else command)
 
 
+# macOS refuses to *execute* a regular file whose name ends in `.app`: the exec
+# call succeeds and the process is killed with SIGKILL (exit 137) before it runs
+# a line, because the path is taken for an application bundle. Verified on macOS
+# 26 with a one-line `#!/bin/sh` script — nothing to do with the file's contents,
+# extended attributes, or code signature.
+#
+# A command named `app` walks into this on two of its three tiers, since the
+# command name is always a shim's last segment: `<ns>.<pkg>.app` and `<ns>.app`
+# are killed, while the bare `app` (no dot) is fine. That would silently break
+# D38's guarantee that every installed command stays invocable.
+#
+# The check is on the name of the file the exec *resolves to*, not the path
+# given — so writing the real script under a suffixed name and leaving a symlink
+# where the user expects it restores all three tiers with no change to the names
+# anyone types. `test_app_shims.py` executes them, so if this behaviour ever
+# changes we hear about it from CI rather than from a user.
+BUNDLE_SUFFIX = ".app"
+SIDECAR_SUFFIX = ".scr"
+
+
+def _needs_bundle_indirection(shim: Path) -> bool:
+    return sys.platform == "darwin" and shim.name.lower().endswith(BUNDLE_SUFFIX)
+
+
+def _write_executable(shim: Path, text: str) -> None:
+    """Write a POSIX shim and make it runnable, via the sidecar-plus-symlink
+    indirection where macOS would otherwise refuse to exec it.
+    """
+    real = (
+        shim.with_name(shim.name + SIDECAR_SUFFIX)
+        if _needs_bundle_indirection(shim)
+        else shim
+    )
+    real.write_text(text)
+    real.chmod(0o755)
+    if real != shim:
+        # Relative, so the pair survives the whole bin dir being moved.
+        shim.unlink(missing_ok=True)
+        shim.symlink_to(real.name)
+
+
+def _remove_shim(shim: Path) -> None:
+    """Remove a shim, and the sidecar behind it if it has one."""
+    shim.unlink(missing_ok=True)
+    shim.with_name(shim.name + SIDECAR_SUFFIX).unlink(missing_ok=True)
+
+
 def _write_shim(bin_dir: Path, command: str, script: Path, language: str, home: Path) -> None:
     """Write the fully-qualified shim for one command.
 
@@ -297,7 +344,7 @@ def _write_shim(bin_dir: Path, command: str, script: Path, language: str, home: 
         # The loader is guaranteed present at install time, but the guard means
         # a user who deletes ~/.scripticus/lib gets a working command rather
         # than an error on stderr every single run.
-        shim.write_text(
+        text = (
             f"#!/usr/bin/env {lang.interpreter}\n"
             f'export SCRIPTICUS_LIB="{libraries.lib_root(home)}"\n'
             f'[ -f "$SCRIPTICUS_LIB/{libraries.LOADER_NAME}" ]'
@@ -305,8 +352,8 @@ def _write_shim(bin_dir: Path, command: str, script: Path, language: str, home: 
             f'. "{script}"\n'
         )
     else:
-        shim.write_text(f'#!/bin/sh\nexec {lang.interpreter} "{script}" "$@"\n')
-    shim.chmod(0o755)
+        text = f'#!/bin/sh\nexec {lang.interpreter} "{script}" "$@"\n'
+    _write_executable(shim, text)
 
 
 def _write_delegating_shim(bin_dir: Path, shim_name: str, target_name: str) -> None:
@@ -314,12 +361,13 @@ def _write_delegating_shim(bin_dir: Path, shim_name: str, target_name: str) -> N
     (never convenience-to-convenience), so reading it names the true owner.
     """
     shim = _shim_path(bin_dir, shim_name)
+    # Delegating to the shim path (not its sidecar) keeps the one-hop reading
+    # honest: exec resolves the symlink itself.
     target = _shim_path(bin_dir, target_name)
     if os.name == "nt":
         shim.write_text(f'@echo off\r\ncall "{target}" %*\r\n')
     else:
-        shim.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n')
-        shim.chmod(0o755)
+        _write_executable(shim, f'#!/bin/sh\nexec "{target}" "$@"\n')
 
 
 def install_into_lock(
@@ -373,10 +421,10 @@ def install_into_lock(
             shutil.rmtree(home / "pkgs" / namespace / name / previous["version"], ignore_errors=True)
         for command in previous["commands"]:
             if command not in commands:
-                _shim_path(bin_dir, fq_shim(namespace, name, command)).unlink(missing_ok=True)
+                _remove_shim(_shim_path(bin_dir, fq_shim(namespace, name, command)))
         for shim in previous.get("shims", []):
             if shim_command(shim) not in commands:
-                _shim_path(bin_dir, shim).unlink(missing_ok=True)
+                _remove_shim(_shim_path(bin_dir, shim))
         # A version that stopped being a library leaves nothing sourceable
         # behind; the staged wrapper would otherwise point into a deleted tree.
         if previous.get("library") and library is None:
