@@ -19,11 +19,19 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### common
 
+### schema
+
+### server
+
+### client
+
+## common 0.2.0 — 2026-07-28
+
 - Added `language_compat`: the pure rule deciding which libraries a package can
   source — `sh` serves the whole shell family, `bash` only `bash` — computed
   identically by the server's resolver and the client's install check (D57).
 
-### schema
+## schema 0.5.0 — 2026-07-28
 
 - Added the `[library]` package kind (D57): a fieldless marker, mutually
   exclusive with `[commands]` and `[snippet]`, with the sourced entry point at
@@ -35,14 +43,14 @@ Releases before this file exists are recorded only in the git tags and in
   bundles and killing them without output. Rejected at pack and publish, with
   an error that says why. Package names are unaffected.
 
-### server
+## server 0.7.0 — 2026-07-28
 
 - Publish projects a library version into a new `library` index table, and
   `/search` and `/packages` report `kind: "library"` (D57).
 - `/resolve` rejects a closure in which something sources a library it cannot
   source, naming both packages and their languages.
 
-### client
+## client 0.7.0 — 2026-07-28
 
 - Libraries (D57): `scr_load <namespace>/<name>` sources reusable shell code
   into a script — transitive, idempotent, and non-fatal on a miss. Installed
@@ -56,3 +64,4 @@ Releases before this file exists are recorded only in the git tags and in
 - `scripticus new <sh|bash> <name> --lib` scaffolds a library package.
 - `uninstall` reports libraries nothing left depends on rather than removing
   them, and `list`/`search` tag a library row as such.
+
