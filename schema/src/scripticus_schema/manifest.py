@@ -34,6 +34,14 @@ TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 
 KNOWN_OS = ("linux", "macos", "windows")
 
+# A command name becomes the last dot-separated segment of every shim D38
+# writes (`<namespace>.<package>.<command>`, `<namespace>.<command>`), which is
+# exactly what an OS reads as the file's extension. `app` would make those shims
+# look like macOS application bundles, and recent macOS refuses to execute one —
+# it SIGKILLs the process before the script runs. So the name is rejected at
+# authoring time rather than worked around per-platform (D60).
+RESERVED_COMMAND_NAMES = frozenset({"app"})
+
 # One archive per format group: POSIX/macOS targets travel as .tar.gz,
 # Windows as .zip (D26). The client packs by this table; the server checks
 # at publish that an uploaded archive's format matches the manifest's
@@ -247,7 +255,26 @@ class Manifest(BaseModel):
                     " language Scripticus distributes commands in has its own"
                     " package manager for reusable code"
                 )
+            self._check_command_names()
         return self
+
+    def _check_command_names(self) -> None:
+        """Reject command names that would make a shim unrunnable (D60).
+
+        Applies to the implicit default command (the package name) as well as an
+        explicit ``[commands]`` table, since both end up as a shim's last
+        segment.
+        """
+        declared = list(self.commands or {})
+        if self.commands is None and self.library is None:
+            declared = [self.package.name]  # the default-entrypoint command
+        for command in declared:
+            if command.lower() in RESERVED_COMMAND_NAMES:
+                raise ValueError(
+                    f"'{command}' cannot be a command name: it would make this"
+                    f" package's shims end in '.{command.lower()}', which macOS"
+                    " treats as an application bundle and refuses to execute"
+                )
 
 
 def is_snippet(manifest: Manifest) -> bool:

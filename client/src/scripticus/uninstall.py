@@ -20,7 +20,6 @@ from pathlib import Path
 from scripticus import libraries
 from scripticus.install import (
     _find_entry,
-    _remove_shim,
     _shim_path,
     _write_delegating_shim,
     _write_shim,
@@ -141,9 +140,11 @@ def apply_uninstall(entry: dict, lock: dict, home: Path) -> None:
     """Remove the package's shims and files, then drop it from the lockfile."""
     bin_dir = home / "bin"
     for command in entry["commands"]:
-        _remove_shim(_shim_path(bin_dir, fq_shim(entry["namespace"], entry["name"], command)))
+        _shim_path(bin_dir, fq_shim(entry["namespace"], entry["name"], command)).unlink(
+            missing_ok=True
+        )
     for shim in entry.get("shims", []):
-        _remove_shim(_shim_path(bin_dir, shim))
+        _shim_path(bin_dir, shim).unlink(missing_ok=True)
     if entry.get("library"):
         libraries.remove_library(home, entry["namespace"], entry["name"])
 

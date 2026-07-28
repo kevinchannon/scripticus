@@ -377,6 +377,11 @@ Entrypoint rules:
   the package language). Typing the package name runs it.
 - **`[commands]` table present**: each entry maps a command name to a script
   path. Every listed command gets a shim on install.
+
+  One name is unavailable: a command cannot be called `app`. Command names
+  become the last segment of the installed shims (`infra.my-tool.app`), which
+  macOS reads as an application-bundle extension and refuses to run. Package
+  names are unaffected — `infra/app` providing `backup` is fine.
 - **`[library]` or `[snippet.<name>]` instead**: the package provides no
   commands at all, and gets no shims. See the sections below.
 

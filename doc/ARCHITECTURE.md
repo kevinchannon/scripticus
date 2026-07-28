@@ -405,15 +405,12 @@ Everything lives under `~/.scripticus/`:
   a shim name's dot count identifies its tier (the identifier character
   sets all exclude `.`).
 
-  One platform wrinkle: recent macOS (observed on 26, though not on every
-  version) will not execute a regular file whose name ends in `.app` — it takes
-  the path for an application bundle and SIGKILLs the process before it runs a
-  line. A command named `app` lands there on every tier: the fully-qualified and
-  namespaced shims end in `.app`, and the bare one delegates to them. On macOS
-  such a shim is therefore written as a sidecar file plus a symlink at the
-  expected name — the check is on the name exec *resolves to*, so the
-  indirection restores all three tiers without changing any name a user types,
-  and costs nothing on versions that never had the restriction.
+  Because a command name is a shim's last segment, it is also what an OS reads
+  as the file's extension — which is why `app` is not a valid command name
+  (D60): recent macOS refuses to execute a file called `*.app`, taking it for an
+  application bundle. That is a manifest error rather than a per-platform
+  workaround, so the mapping from command name to one file on disk stays
+  one-to-one.
 
 - **`lib/`** — the library staging tree (D57). It holds the `scr_load` loader
   itself (`lib/scr_load.sh`, laid down by `scripticus init` and refreshed by

@@ -1977,3 +1977,46 @@ the release.
 - Bad: a tag pushed by hand rather than by `tt release` gets a release page with
   generated notes only; the workflow warns but does not fail, since a missing
   summary is no reason to block a release that has already built.
+
+## D60. `app` is not a valid command name
+
+**Decision**: Reject `app` as a command name in the manifest, at authoring time
+and again at publish. A command name is the last dot-separated segment of every
+shim D38 writes (`<namespace>.<package>.<command>`, `<namespace>.<command>`),
+which is what an OS reads as the file's extension — so a command called `app`
+produces shims named `*.app`, which recent macOS takes for application bundles
+and refuses to execute, SIGKILLing the process before the script runs. The rule
+covers the implicit default command too, since a package with no `[commands]`
+table takes its own name. It does not restrict *package* names or namespaces:
+only the final segment reaches the extension, so `acme/app` providing `backup`
+is fine, as are library and snippet packages, which have no shims at all.
+
+**Reason**: One reserved word is a smaller cost than the alternative. The
+platform behaviour can be worked around — the kernel checks the name the exec
+*resolves to*, so a sidecar file plus a symlink at the expected name restores
+the shims — but that buys a rare name at the price of a permanent, macOS-only
+special case in the shim writer, a second file per affected shim for every
+removal path to remember, and a dependence on undocumented behaviour that
+varies by macOS version (26 kills it; the older macOS on CI does not). Rejecting
+the name states the constraint once, in the manifest, where every other naming
+rule already lives (D13) and where the author finds out before writing any code.
+Consistent with the existing charset restrictions on namespaces, package names,
+and tool names, which likewise trade a little expressiveness for names that
+cannot break downstream.
+
+**Consequences**:
+- Good: no platform-specific branch in the shim writer, and no second file
+  behind any shim — the D11/D38 mapping from command name to one file on disk
+  stays exactly one-to-one.
+- Good: the failure it prevents was the worst kind — exit 137, no output, and
+  nothing to suggest the name was the cause. Now it is a manifest error naming
+  the reason.
+- Neutral: enforced in `schema`, so the client rejects it at pack time and the
+  server re-rejects at publish; an already-published `app` command (none exist)
+  would keep resolving, since the read path does not re-validate manifests.
+- Bad: a name someone might reasonably want is unavailable on every platform,
+  because of one platform's behaviour — and unavailable even to packages that
+  only target Linux.
+- Bad: a reserved-name list is a thing that can grow; nothing else belongs on it
+  today (`.pkg`, `.dmg`, `.command` and `.workflow` were all checked and execute
+  normally), but the precedent invites future additions.

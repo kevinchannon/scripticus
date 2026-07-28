@@ -286,7 +286,7 @@ def test_remote_install_transitive_closure_marks_direct_and_transitive(
     lib, lib_hash, lib_ptr = make_package(tmp_path, "lib", version="0.1.0")
     root_archive, root_hash, root_ptr = make_package(
         tmp_path,
-        "app",
+        "top-tool",
         version="0.1.0",
         extra_toml='\n[dependencies.packages]\n"acme/lib" = "^0.1"\n',
     )
@@ -299,7 +299,7 @@ def test_remote_install_transitive_closure_marks_direct_and_transitive(
             json={
                 "packages": [
                     resolved_pkg("acme", "lib", "0.1.0", lib_hash, lib_ptr, direct=False),
-                    resolved_pkg("acme", "app", "0.1.0", root_hash, root_ptr, direct=True),
+                    resolved_pkg("acme", "top-tool", "0.1.0", root_hash, root_ptr, direct=True),
                 ],
                 "tools": [],
             },
@@ -311,13 +311,13 @@ def test_remote_install_transitive_closure_marks_direct_and_transitive(
         {lib_ptr: lib.read_bytes(), root_ptr: root_archive.read_bytes()},
     )
 
-    result = runner.invoke(app, ["install", "acme/app", "-y"])
+    result = runner.invoke(app, ["install", "acme/top-tool", "-y"])
     assert result.exit_code == 0, result.output
 
     entries = {e["name"]: e for e in lockfile(home)}
     assert entries["lib"]["direct"] is False
-    assert entries["app"]["direct"] is True
-    assert entries["app"]["dependencies"] == {"acme/lib": "^0.1"}
+    assert entries["top-tool"]["direct"] is True
+    assert entries["top-tool"]["dependencies"] == {"acme/lib": "^0.1"}
 
 
 def test_already_satisfied_root_is_nothing_to_do(home, tmp_path, monkeypatch):

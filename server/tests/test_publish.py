@@ -203,7 +203,7 @@ def test_dependency_must_already_exist_in_index(client, make_archive):
 def test_publish_with_existing_dependency_succeeds(client, make_archive):
     post_archive(client, make_archive(name="base-lib"))
     response = post_archive(
-        client, make_archive(name="app", dependencies={"kevin-c/base-lib": "^1.0"})
+        client, make_archive(name="top-tool", dependencies={"kevin-c/base-lib": "^1.0"})
     )
     assert response.status_code == 201, response.text
 
