@@ -108,8 +108,9 @@ def test_installing_a_library_stages_a_wrapper_and_no_shims(home, tmp_path):
 
     wrapper = libraries.library_dir(home, "acme", "strings") / "load.sh"
     assert wrapper.is_file()
-    # The version-less path points at the versioned tree.
-    assert str(home / "pkgs" / "acme" / "strings" / "1.0.0") in wrapper.read_text()
+    # The version-less path points at the versioned tree, POSIX-style: a
+    # shell is what reads this, on every platform.
+    assert (home / "pkgs" / "acme" / "strings" / "1.0.0").as_posix() in wrapper.read_text()
     # The loader lands beside it, so a library install is enough to use one.
     assert libraries.loader_path(home).is_file()
 
@@ -141,7 +142,7 @@ def test_upgrading_a_library_repoints_the_wrapper(home, tmp_path):
     )
 
     wrapper = libraries.library_dir(home, "acme", "strings") / "load.sh"
-    assert str(home / "pkgs" / "acme" / "strings" / "2.0.0") in wrapper.read_text()
+    assert (home / "pkgs" / "acme" / "strings" / "2.0.0").as_posix() in wrapper.read_text()
     assert "1.0.0" not in wrapper.read_text()
 
 
