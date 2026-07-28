@@ -2071,7 +2071,9 @@ silently invalidated whatever the operator had saved.
   format is a hard failure rather than a blank secret, but it is a real
   coupling to a Gitea version.
 - Bad: a shell script standing between the operator and `docker compose up` is
-  another thing to maintain, and it carries no test suite — the BATS e2e suite
-  bootstraps via `scripts/start-server`, not this.
+  another thing to maintain. Its decision logic is covered by
+  `tests/bootstrap.bats` against a stubbed `docker`/`curl`, but its happy path
+  is not: the script polls `localhost`, so it assumes it runs on the Docker
+  host, which the DooD e2e runner is not.
 - Bad: "refuse and exit" means a run interrupted after user creation leaves a
   stack the script will not touch again; recovery is `down -v` or the web UI.

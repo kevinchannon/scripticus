@@ -78,6 +78,16 @@ defined in the repo-root [tasktree.yaml](../tasktree.yaml).
   package exposing a shim per command (and the guaranteed `<ns>.<pkg>.<cmd>`
   form), `uninstall` removing a package's shims, and `use` re-pointing a
   contested convenience shim.
+- [`bootstrap.bats`](bootstrap.bats) — the odd one out: it exercises
+  [`get-scripticus-svr`](../get-scripticus-svr) (D61) and needs neither the
+  registry nor the client. It **stubs `docker` and `curl`** rather than driving
+  real ones, because what it tests is the script's decisions — host preflight,
+  the three refusals, project-name derivation — and those branches are the ones
+  a real stack makes slow or impossible to reach (an old compose plugin cannot
+  be conjured on demand). The happy path is deliberately not covered here: the
+  script polls `http://localhost:<gitea-port>`, which assumes it runs on the
+  Docker host, and inside the DooD runner localhost is the runner rather than
+  the host publishing those ports.
 
 These check the README's claims aren't lies; the mechanics themselves are
 covered in depth by the pytest suite. Each test authors a uniquely-named

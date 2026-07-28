@@ -94,7 +94,11 @@ done
 # Read from /dev/tty, not stdin, so this still works under `curl ... | sh`
 # (where stdin is the script). No tty — CI, a pipe with no terminal — takes the
 # default, so the script never blocks on a prompt it cannot show.
-if [ -z "$DIR_GIVEN" ] && [ -e /dev/tty ] && { : >/dev/tty; } 2>/dev/null; then
+# The tty probe runs in a subshell on purpose. A redirection failure on a POSIX
+# *special* built-in (`:` among them) exits the shell outright under dash, ash,
+# and busybox sh — so probing inline would kill the script silently on exactly
+# the machines that have no tty. A subshell absorbs that and just reports false.
+if [ -z "$DIR_GIVEN" ] && [ -e /dev/tty ] && ( true >/dev/tty ) 2>/dev/null; then
     printf '%sWhere should the registry live?%s [%s] ' "$BOLD" "$NC" "$DIR" >/dev/tty
     read -r reply </dev/tty || reply=""
     [ -z "$reply" ] || DIR="$reply"
@@ -182,11 +186,33 @@ fi
 # --- stand the bundle up ---------------------------------------------------
 
 info "fetching docker-compose.yml ($REF)"
+# If the download fails we take the directory back out, so a failed run leaves
+# nothing behind — otherwise the empty dir the next attempt finds is a dir the
+# next attempt refuses to use.
+CREATED_DIR=""
+[ -d "$DIR" ] || CREATED_DIR=yes
 mkdir -p "$DIR"
 cd "$DIR"
-fetch "$COMPOSE_URL" > docker-compose.yml \
-    || die "could not download the compose file from $COMPOSE_URL"
-[ -s docker-compose.yml ] || die "downloaded an empty compose file — aborting"
+# Resolved after the cd, so the cleanup below is not confused by a relative or
+# nested --dir once the working directory has moved.
+ABS_DIR=$(pwd)
+
+undo_dir() {
+    rm -f "$ABS_DIR/docker-compose.yml"
+    if [ -n "$CREATED_DIR" ]; then
+        cd /
+        rmdir "$ABS_DIR" 2>/dev/null || true
+    fi
+}
+
+if ! fetch "$COMPOSE_URL" > docker-compose.yml; then
+    undo_dir
+    die "could not download the compose file from $COMPOSE_URL"
+fi
+if [ ! -s docker-compose.yml ]; then
+    undo_dir
+    die "downloaded an empty compose file from $COMPOSE_URL — aborting"
+fi
 
 SCRIPTICUS_PORT="$PORT"
 SCRIPTICUS_GITEA_PORT="$GITEA_PORT"
