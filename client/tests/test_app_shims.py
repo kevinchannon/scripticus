@@ -1,10 +1,12 @@
 """Commands named `app`, which macOS will not execute (D11/D38).
 
-macOS kills any process whose executable is a regular file named `*.app` — it
-takes the path for an application bundle — so a command called `app` would lose
-two of its three shim tiers (`<ns>.<pkg>.app` and `<ns>.app`; the bare `app` has
-no dot and is fine). `install.py` works around it by writing the real script to
-a sidecar and leaving a symlink at the name the user types.
+Recent macOS (observed on 26, but not on the older macOS the GitHub runners use)
+kills any process whose executable is a regular file named `*.app` — it takes
+the path for an application bundle. A command called `app` loses *all three* of
+its shim tiers there: the two dotted ones end in `.app`, and the bare `app` dies
+with them because it delegates to the fully-qualified shim. `install.py` works
+around it by writing the real script to a sidecar and leaving a symlink at the
+name the user types.
 
 These tests **run** the shims rather than inspecting them: the workaround leans
 on macOS checking the name of the file exec resolves to, which is observed
@@ -109,19 +111,29 @@ def test_the_dotted_tiers_are_symlinks_to_sidecars_on_macos(home, tmp_path):
     assert not shim(home, "app").is_symlink()
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="the workaround is macOS-only")
-def test_macos_really_does_kill_a_plain_app_named_script(tmp_path):
-    # The premise the workaround rests on. If this ever starts passing, the
-    # indirection can be deleted — so assert the breakage, not just the fix.
+@pytest.mark.skipif(sys.platform != "darwin", reason="the restriction is macOS-only")
+def test_the_app_bundle_restriction_this_works_around(tmp_path):
+    """Record whether *this* macOS refuses to exec a `*.app` file.
+
+    Not every version does: macOS 26 kills it, while the older macOS on the
+    GitHub runners runs it happily. So this cannot assert the breakage
+    unconditionally — it documents the premise on a machine that has it, and
+    skips where the indirection is merely harmless. The tests above are the
+    ones that must pass everywhere.
+    """
     script = tmp_path / "probe.app"
     script.write_text("#!/bin/sh\necho hi\n")
     script.chmod(0o755)
 
     completed = subprocess.run([str(script)], capture_output=True)
 
+    if completed.returncode == 0:
+        pytest.skip(
+            "this macOS executes *.app scripts, so the sidecar indirection is a"
+            " no-op here; it is still needed on versions that do not (macOS 26)"
+        )
     assert completed.returncode == -9, (
-        "macOS no longer SIGKILLs a regular file named *.app;"
-        " the sidecar indirection in install.py may no longer be needed"
+        f"unexpected outcome for a *.app script: rc={completed.returncode}"
     )
 
 

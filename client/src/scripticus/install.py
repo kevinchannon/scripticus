@@ -274,11 +274,14 @@ def _shim_path(bin_dir: Path, command: str) -> Path:
     return bin_dir / (f"{command}.cmd" if os.name == "nt" else command)
 
 
-# macOS refuses to *execute* a regular file whose name ends in `.app`: the exec
-# call succeeds and the process is killed with SIGKILL (exit 137) before it runs
-# a line, because the path is taken for an application bundle. Verified on macOS
-# 26 with a one-line `#!/bin/sh` script — nothing to do with the file's contents,
-# extended attributes, or code signature.
+# Recent macOS refuses to *execute* a regular file whose name ends in `.app`:
+# the exec call succeeds and the process is killed with SIGKILL (exit 137)
+# before it runs a line, because the path is taken for an application bundle.
+# Verified on macOS 26 with a one-line `#!/bin/sh` script — nothing to do with
+# the file's contents, extended attributes, or code signature. Version-specific,
+# not universal: the older macOS on the GitHub runners executes such a file
+# quite happily, so the indirection below is a no-op there rather than dead
+# code to delete.
 #
 # A command named `app` walks into this on two of its three tiers, since the
 # command name is always a shim's last segment: `<ns>.<pkg>.app` and `<ns>.app`
