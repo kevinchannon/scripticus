@@ -23,6 +23,13 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+- Fixed the registry bundle's documented standup: `docker-compose.yml` bind-mounted
+  `./proxy/Caddyfile`, which does not exist for an operator who fetches only the
+  compose file as the README instructs — Docker created an empty directory at the
+  mount path and the proxy container failed to start. The Caddyfile is now an
+  inline `configs` entry in the compose file, so the one-file standup works (D45).
+  Needs Docker Compose v2.23.1 or newer.
+
 ### client
 
 ## common 0.2.0 — 2026-07-28

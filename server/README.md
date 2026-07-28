@@ -18,7 +18,9 @@ releases publish a Docker image to
 The proxy is the single URL clients use (`http://localhost:8000`): it routes
 blob downloads to Gitea and everything else to the index, so a client needs
 no Gitea address of its own (D45). Gitea's web UI stays on
-`http://localhost:3000` for first-run setup.
+`http://localhost:3000` for first-run setup. That compose file is the whole
+deployment — the proxy's routing config is inline, so there is nothing else to
+fetch (it does need Docker Compose v2.23.1 or newer).
 
 ```console
 $ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml

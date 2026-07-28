@@ -1291,6 +1291,14 @@ L4) favours the heavier options; Caddy's automatic-HTTPS is an unused-here
 bonus if a public deployment later terminates TLS at the front. The proxy
 is swappable behind the "one front URL" contract, so this binds nothing.
 
+**Note (the Caddyfile is inline)**: the routing config lives in
+`docker-compose.yml` as an inline `configs` entry, not as a `proxy/Caddyfile`
+bind mount. The bind mount silently broke the documented standup — an operator
+who fetches only `docker-compose.yml` gets an empty *directory* created at the
+mount path and a mount-type error from the runtime, so the bundle needs a
+checkout after all. Inlining keeps "one file, one command" true, at the cost of
+the config living in YAML rather than its own syntax-highlighted file.
+
 ## D46. Client remote install: one remote per closure, fully-namespaced only in v1
 
 **Decision**: `scripticus install <namespace/name>[@spec]` resolves
@@ -1700,7 +1708,7 @@ identically locally and in CI. DooD (a mounted host socket) rather than a
 client compose-service lets the runner both own the stack and be the client,
 and because the runner is a sibling of the bundle on one daemon it joins the
 stack network and reaches services by name; the auto-mount at the host path is
-what makes the bundle's Caddyfile bind mount resolve on the host daemon.
+what makes the build overlay's source build context resolve on the host daemon.
 Building from source proves `server/Dockerfile` still builds, and the overlay
 (not an edit to the shipped file) preserves the README's source-free,
 one-command standup for real operators; `!reset` host ports keep it hermetic.

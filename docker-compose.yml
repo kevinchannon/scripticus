@@ -8,13 +8,19 @@
 # The index image is published by the release workflow on server-v* tags.
 # To run unreleased local changes instead, build from source:
 #   docker build -f server/Dockerfile -t kevinchannon/scripticus-server .
+#
+# This file is self-contained: the proxy's Caddyfile is an inline config, not
+# a bind mount, so `curl`-ing this one file and running `docker compose up -d`
+# stands the bundle up with no checkout (D45). Inline config content needs
+# Docker Compose v2.23.1 or newer.
 services:
   proxy:
     image: caddy:2-alpine
     ports:
       - "8000:80"
-    volumes:
-      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
     depends_on:
       - index
       - gitea
@@ -47,3 +53,33 @@ services:
 volumes:
   index-data:
   gitea-data:
+
+configs:
+  # The single user-facing front for the registry bundle (D45). A client
+  # points at one URL for everything; this splits the traffic internally:
+  #
+  #   /api/packages/.../generic/...  -> Gitea (blob download, D9)
+  #   everything else                -> the index service
+  #
+  # Blob downloads pass straight through to Gitea's generic package registry,
+  # so the index *application* never touches blob bytes (D9) — the proxy is
+  # dumb pass-through infrastructure, not the index app. `resolve` returns
+  # download pointers relative to this front URL, so the client fetches
+  # `{remote.url}/api/packages/...` with its stored Gitea token, which the
+  # proxy forwards untouched. The index<->Gitea internal calls (auth, publish
+  # uploads) use the internal address directly and never come through here.
+  caddyfile:
+    content: |
+      :80 {
+      	# Gitea's blob path is `/api/packages/...`; the index API lives under
+      	# `/packages` (no `/api`), `/resolve`, `/search`, `/whoami`, `/health`,
+      	# `/version`, so the two never collide.
+      	@gitea path /api/packages/*
+      	handle @gitea {
+      		reverse_proxy gitea:3000
+      	}
+
+      	handle {
+      		reverse_proxy index:8000
+      	}
+      }

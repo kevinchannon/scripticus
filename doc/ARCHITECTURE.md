@@ -39,7 +39,9 @@ Deployment target for the server side is a single `docker-compose.yml`
 (a reverse proxy fronting the index service + Gitea, SQLite-backed for
 small installations). The proxy presents one user-facing URL and routes
 internally (D45), so clients — and enterprise firewalls — see a single
-endpoint.
+endpoint. That file is literally the whole deployment: its proxy routing
+is an inline `configs` entry rather than a bind-mounted `Caddyfile`, so
+fetching it alone is enough to stand the bundle up (D45).
 
 ## Package identity
 

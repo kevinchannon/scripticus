@@ -174,8 +174,9 @@ post-download. The server records the kind in a new `db.Library` table (a table,
 not a column: `create_all` never alters existing ones, D31). `new --lib`
 scaffolds; `uninstall` reports orphaned libraries but never removes them. A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
-registry bundle: a Caddy reverse-proxy front (`proxy/Caddyfile`, D45)
-presenting one user-facing URL over the index service and Gitea. The design
+registry bundle: a Caddy reverse-proxy front (D45, its Caddyfile inline in
+the compose file so the bundle is genuinely one fetched file) presenting one
+user-facing URL over the index service and Gitea. The design
 docs below describe the intended v1.0.0 and remain the source of truth for
 architecture.
 
