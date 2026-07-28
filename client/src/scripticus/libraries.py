@@ -55,8 +55,19 @@ def install_loader(home: Path) -> Path:
     """
     path = loader_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(loader_text())
+    _write_shell_file(path, loader_text())
     return path
+
+
+def _write_shell_file(path: Path, text: str) -> None:
+    """Write shell source with LF endings whatever the platform.
+
+    A library can be installed on Windows — the staging is just a generated
+    file — and what reads it there is bash (git-bash, WSL), which treats a
+    trailing ``\\r`` as part of the command. Default text-mode translation would
+    produce CRLF and break every sourced line.
+    """
+    path.write_text(text, newline="\n")
 
 
 def _sh_quote(value: str) -> str:
@@ -90,7 +101,7 @@ def stage_library(
     directory = library_dir(home, namespace, name)
     directory.mkdir(parents=True, exist_ok=True)
     wrapper = directory / WRAPPER_NAME
-    wrapper.write_text(wrapper_text(install_dir, entrypoint))
+    _write_shell_file(wrapper, wrapper_text(install_dir, entrypoint))
     return wrapper
 
 

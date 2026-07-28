@@ -21,6 +21,10 @@ from scripticus.pack import pack_package
 
 runner = CliRunner()
 
+# All three platforms: staging a library is platform-neutral (a generated
+# wrapper file), so installing, upgrading and removing one is worth testing
+# everywhere. Only *sourcing* it through a shim is POSIX-only — cmd.exe cannot
+# source the loader — and those tests skip on Windows individually.
 LIBRARY_MANIFEST = """\
 [package]
 namespace = "{namespace}"
@@ -30,7 +34,7 @@ language = "{language}"
 description = "String helpers"
 
 [platforms]
-os = ["linux", "macos"]
+os = ["linux", "macos", "windows"]
 
 [library]
 """
@@ -115,6 +119,19 @@ def test_installing_a_library_stages_a_wrapper_and_no_shims(home, tmp_path):
     assert entry["shims"] == []
     # A library provides nothing runnable — nothing goes into bin/.
     assert not any((home / "bin").iterdir())
+
+
+def test_staged_shell_files_use_lf_endings(home, tmp_path):
+    # What reads these is bash — git-bash on Windows included — and a trailing
+    # \r makes every sourced line a syntax error. Platform newline translation
+    # must not get near them.
+    runner.invoke(app, ["install", "-f", str(build_library(tmp_path)), "-y"])
+
+    for path in (
+        libraries.loader_path(home),
+        libraries.library_dir(home, "acme", "strings") / "load.sh",
+    ):
+        assert b"\r\n" not in path.read_bytes(), path
 
 
 def test_upgrading_a_library_repoints_the_wrapper(home, tmp_path):
