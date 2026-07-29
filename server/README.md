@@ -43,34 +43,6 @@ user stops the run rather than modifying what is already there. It needs
 Docker, the Compose v2 plugin at v2.23.1 or newer (the bundle carries its proxy
 config inline), and either `curl` or `wget`.
 
-Standing it up by hand works too — the compose file is self-contained:
-
-```console
-$ curl -LO https://raw.githubusercontent.com/kevinchannon/scripticus/main/docker-compose.yml
-$ docker compose up -d
-$ curl http://localhost:8000/health
-{"status":"ok"}
-```
-
-That leaves the account side to you, and one caveat: standing the bundle up by
-hand leaves Gitea's own page titles in place, since the rename is something the
-script applies. Accounts and organisations are managed at
-`http://localhost:8000/accounts`, and a Scripticus namespace *is* a Gitea user or
-organisation, claimed first-come-first-served, with publish rights following
-Gitea's own membership and ACLs. So, once the bundle is up:
-
-1. Register your user at `http://localhost:8000/accounts` (the first
-   registered user is the instance admin), and create an organisation for any
-   shared namespace you want.
-2. Generate a token under *Settings → Applications → Manage Access
-   Tokens*. It needs **package: Read and Write** (blob upload on publish,
-   download on install) and **user: Read** (resolving the token to a login).
-   Add **organization: Read** if you will publish under an organisation
-   namespace rather than your own username — without it the membership check
-   fails, and since every non-server response reads as "not permitted", you
-   get a permission error rather than a scope error.
-3. Publish with that token (see [Publishing](#publishing) below).
-
 ### Running the index service directly
 
 Of course, you can also just run the index service on its own — without
