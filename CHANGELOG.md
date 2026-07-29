@@ -29,6 +29,13 @@ Releases before this file exists are recorded only in the git tags and in
   --public-url`) when the registry is not reached at `http://localhost:8000`,
   since Gitea builds its links from it. The instance is also retitled
   Scripticus, which the bootstrap script applies.
+- `get-scripticus-svr` asks for the administrator's account and the publishing
+  namespace separately (D61), creating the latter as a Gitea organisation owned
+  by the admin. Defaulting the namespace to whoever ran the installer would put
+  an individual's name in every package reference — `phil-from-it/backup-rotate`
+  instead of `acme-co/backup-rotate` — which nothing can undo once published.
+  The minted token now carries `read:organization` so publishing to an
+  organisation works without a second trip to the web UI.
 - Added `get-scripticus-svr`, a bootstrap script that stands a registry up in one
   command — `curl -fsSL <url> | sh` (D61): it preflights the host, fetches the compose bundle, starts it,
   and creates a Gitea admin account with a correctly-scoped publish token,

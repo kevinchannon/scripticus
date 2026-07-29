@@ -181,10 +181,15 @@ port (D62): Gitea's web UI is served through the same front at `/accounts/`
 (prefix stripped by `handle_path`, `ROOT_URL` set to `SCRIPTICUS_PUBLIC_URL`
 plus that prefix), since accounts, orgs, and tokens are Gitea's (D2/D4) and
 administering them is ongoing work, not first-run setup. The documented standup is
-the root `get-scripticus-svr` script (D61): POSIX sh, it preflights the host,
-fetches the compose file, starts the stack, and mints a Gitea admin account
-plus a `write:package,read:user` token, printing both once; it refuses (never
-repairs) when a directory, stack, or user already exists. The design
+the root `get-scripticus-svr` script (D61), delivered as `curl ... | sh`: POSIX
+sh, body wrapped in one compound command so a truncated download runs nothing,
+it preflights the host, fetches the compose file, starts the stack, and mints a
+Gitea admin account plus a `write:package,read:user,read:organization` token,
+printing both once. It asks (via `/dev/tty`, so the pipe still works) for the
+install directory, the admin account, and — separately — the publishing
+namespace, which it creates as a Gitea organisation owned by the admin, so
+packages read `acme-co/<pkg>` rather than the installer's own name. It refuses
+(never repairs) when a directory, stack, or user already exists. The design
 docs below describe the intended v1.0.0 and remain the source of truth for
 architecture.
 

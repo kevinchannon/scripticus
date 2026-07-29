@@ -29,9 +29,18 @@ account with a correctly-scoped publish token:
 $ curl -fsSL https://raw.githubusercontent.com/kevinchannon/scripticus/main/get-scripticus-svr | sh
 ```
 
-It asks where to put the stack and prints a username, password, and token at
-the end. **Save all three then** — Gitea shows a token once, and the script
-will not mint a second one for an account that already exists.
+It asks three things — where to put the stack, the administrator's account
+name, and the organisation to publish under — then prints a username,
+password, and token. **Save all three then** — Gitea shows a token once, and
+the script will not mint a second one for an account that already exists.
+
+The administrator and the publishing namespace are deliberately separate. A
+namespace is a Gitea user *or organisation*, so the person running the registry
+does not have to be the identity packages belong to: answer `acme-co` to the
+namespace question and packages read `acme-co/backup-rotate`, while the admin
+account stays a person. Skipping it publishes under the admin's own username,
+which is fine for a personal registry and a trap for a shared one — every
+reference already published keeps that name.
 
 Options go after `-s --`, since a pipe leaves nowhere else to put them:
 
@@ -39,7 +48,7 @@ Options go after `-s --`, since a pipe leaves nowhere else to put them:
 $ curl -fsSL .../get-scripticus-svr | sh -s -- --dir /srv/registry --port 9000
 ```
 
-`--dir`, `--user`, `--email`, and `--port` cover the non-interactive case;
+`--dir`, `--user`, `--org`, `--email`, and `--port` cover the non-interactive case;
 `--help` lists them. Pass `--public-url` if the registry will not be reached at
 `http://localhost:<port>` — the account pages build their links from it, so
 getting it wrong leaves a working registry with broken links.

@@ -40,14 +40,19 @@ COMPOSE_URL="${SCRIPTICUS_COMPOSE_URL:-$RAW_BASE/$REF/docker-compose.yml}"
 DIR="scripticus-svr"
 DIR_GIVEN=""
 USERNAME=""
+ORG=""
+ORG_GIVEN=""
 EMAIL=""
 PORT="8000"
 PUBLIC_URL=""
 TOKEN_NAME="scripticus-publish"
-# The scopes the index service actually needs: write:package for blob
-# upload/download, read:user to resolve a token to a login. read:organization
-# is added only when publishing under an org namespace (server/README.md).
-TOKEN_SCOPES="write:package,read:user"
+# What the index service actually calls: write:package for blob upload and
+# download, read:user to resolve a token to a login, read:organization for the
+# publish ACL check on an org namespace. The last is included even when no org
+# exists yet, because without it `can_publish` gets a 403 it cannot distinguish
+# from a refusal (gitea.py) — so a token minted before the first organisation
+# would fail, later, with a permission error that names the wrong cause.
+TOKEN_SCOPES="write:package,read:user,read:organization"
 # Inline `configs` content in the compose file (D45) needs this or newer.
 MIN_COMPOSE="2.23.1"
 
@@ -69,8 +74,11 @@ usage() {
 Usage: get-scripticus-svr [options]
 
   --dir <path>      where to put the stack (default: ./$DIR); skips the prompt
-  --user <name>     Gitea admin username; this is also a Scripticus namespace,
-                    so use a real identity (default: your login name)
+  --user <name>     the administrator's account, for running the registry
+                    (default: your login name)
+  --org <name>      the organisation packages are published under — the
+                    namespace in <namespace>/<package>. Omit for no
+                    organisation, publishing under the admin's own username
   --email <addr>    admin email (default: <user>@example.invalid)
   --port <n>        host port for the registry front (default: $PORT)
   --public-url <u>  the address browsers will use, if not http://localhost:<port>
@@ -90,6 +98,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --dir) [ $# -ge 2 ] || die "--dir needs a value"; DIR="$2"; DIR_GIVEN=yes; shift 2 ;;
         --user) [ $# -ge 2 ] || die "--user needs a value"; USERNAME="$2"; shift 2 ;;
+        --org) [ $# -ge 2 ] || die "--org needs a value"; ORG="$2"; ORG_GIVEN=yes; shift 2 ;;
         --email) [ $# -ge 2 ] || die "--email needs a value"; EMAIL="$2"; shift 2 ;;
         --port) [ $# -ge 2 ] || die "--port needs a value"; PORT="$2"; shift 2 ;;
         --public-url) [ $# -ge 2 ] || die "--public-url needs a value"; PUBLIC_URL="$2"; shift 2 ;;
@@ -98,8 +107,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+USER_GIVEN="$USERNAME"
 [ -n "$USERNAME" ] || USERNAME=$(id -un)
-[ -n "$EMAIL" ] || EMAIL="$USERNAME@example.invalid"
 # Gitea builds every link and redirect from ROOT_URL, so it has to be the
 # address a browser will actually use — not the internal one.
 [ -n "$PUBLIC_URL" ] || PUBLIC_URL="http://localhost:$PORT"
@@ -118,10 +127,42 @@ UI_URL="$PUBLIC_URL/accounts/"
 # *special* built-in (`:` among them) exits the shell outright under dash, ash,
 # and busybox sh — so probing inline would kill the script silently on exactly
 # the machines that have no tty. A subshell absorbs that and just reports false.
-if [ -z "$DIR_GIVEN" ] && [ -e /dev/tty ] && ( true >/dev/tty ) 2>/dev/null; then
+HAVE_TTY=""
+if [ -e /dev/tty ] && ( true >/dev/tty ) 2>/dev/null; then
+    HAVE_TTY=yes
+fi
+
+if [ -z "$DIR_GIVEN" ] && [ -n "$HAVE_TTY" ]; then
     printf '%sWhere should the registry live?%s [%s] ' "$BOLD" "$NC" "$DIR" >/dev/tty
     read -r reply </dev/tty || reply=""
     [ -z "$reply" ] || DIR="$reply"
+fi
+
+# The login name is a reasonable guess at who is standing this up, and no more
+# than a guess — the account is a real identity in the registry, so it is
+# offered as a default rather than imposed.
+if [ -z "$USER_GIVEN" ] && [ -n "$HAVE_TTY" ]; then
+    printf '\n%sAdministrator account for this registry?%s [%s] ' "$BOLD" "$NC" "$USERNAME" >/dev/tty
+    read -r reply </dev/tty || reply=""
+    [ -z "$reply" ] || USERNAME="$reply"
+fi
+
+# Deferred until the name is settled, since it is derived from it.
+[ -n "$EMAIL" ] || EMAIL="$USERNAME@example.invalid"
+
+# The other choice worth asking about, and the one hardest to change later.
+# Whoever administers the registry is rarely the identity packages should be
+# published under: an admin account named after a person makes every package in
+# the registry read `phil-from-it/backup-rotate`. The publishing namespace is an
+# organisation, so it can be the company while the admin stays a person — and it
+# is baked into every package reference from the first publish onwards.
+if [ -z "$ORG_GIVEN" ] && [ -n "$HAVE_TTY" ]; then
+    printf '\n%sPackages are published as <namespace>/<package>, and the namespace is\n' "$BOLD" >/dev/tty
+    printf 'an organisation — usually your company or team, e.g. acme-co.%s\n' "$NC" >/dev/tty
+    printf 'Leave blank to publish under your own username (%s) instead.\n' "$USERNAME" >/dev/tty
+    printf '%sPublishing namespace?%s [none] ' "$BOLD" "$NC" >/dev/tty
+    read -r reply </dev/tty || reply=""
+    [ -z "$reply" ] || ORG="$reply"
 fi
 
 # Expand a leading ~ ourselves: it arrives literal from `read`, and a directory
@@ -150,7 +191,9 @@ PROJECT=$(printf '%s' "$(basename "$DIR")" \
 
 info "checking prerequisites"
 
+HAVE_CURL=""
 if command -v curl >/dev/null 2>&1; then
+    HAVE_CURL=yes
     fetch() { curl -fsSL "$1"; }
 elif command -v wget >/dev/null 2>&1; then
     fetch() { wget -qO- "$1"; }
@@ -315,6 +358,50 @@ $created
    The account may exist. Check $UI_URL before re-running."
 fi
 
+# --- the publishing namespace ----------------------------------------------
+# An organisation, created as the admin, who becomes its owner — so the admin
+# can publish under it while the namespace itself carries no person's name.
+# Gitea has no CLI for this, so it goes through the API as the user we just
+# created, authenticated with the password rather than the token: creating an
+# organisation would otherwise need write:organization on a long-lived
+# publishing credential that has no other use for it.
+NAMESPACE="$USERNAME"
+if [ -n "$ORG" ]; then
+    if [ -z "$HAVE_CURL" ]; then
+        warn "no curl, so the '$ORG' organisation was not created — make it at
+   $UI_URL and publish under it once it exists"
+    else
+        info "creating the '$ORG' organisation"
+        org_status=$(curl -s -o /dev/null -w '%{http_code}' \
+            -u "$USERNAME:$PASSWORD" \
+            -X POST -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$ORG\",\"visibility\":\"public\"}" \
+            "$PUBLIC_URL/accounts/api/v1/orgs" 2>/dev/null) || org_status="000"
+        case "$org_status" in
+            201) NAMESPACE="$ORG" ;;
+            422) die "Gitea rejected the organisation name '$ORG'.
+   It may already exist, clash with the '$USERNAME' account, or use characters
+   Gitea does not allow. The registry is up; create the organisation at
+   $UI_URL and publish under it." ;;
+            *) die "could not create the '$ORG' organisation (HTTP $org_status).
+   The registry is up and '$USERNAME' exists; create the organisation at
+   $UI_URL and publish under it." ;;
+        esac
+    fi
+fi
+
+# Publishing under a person's account is fine for a personal registry and a
+# trap for a shared one — every package reference carries that name for good.
+# Say so once, here, rather than leaving it to be discovered at the tenth
+# package.
+NAMESPACE_NOTE=""
+if [ "$NAMESPACE" = "$USERNAME" ]; then
+    NAMESPACE_NOTE="
+${YELLOW}That is your personal account. For a shared registry an organisation is
+usually wanted instead, so packages read acme-co/<package> rather than one
+person's name — make one at $UI_URL, or re-run with --org.${NC}"
+fi
+
 # --- the bit that matters --------------------------------------------------
 
 cat <<EOF
@@ -338,9 +425,11 @@ Put the token to work:
   pipx install scripticus
   scripticus login $PUBLIC_URL
 
-Your username is also your Scripticus namespace, so you publish as
-${BOLD}$USERNAME/<package>${NC}. Anyone else who publishes here registers their own
-account at $UI_URL; this one is yours.
+You publish as ${BOLD}$NAMESPACE/<package>${NC}.$NAMESPACE_NOTE
+
+Anyone else who publishes here registers their own account at
+$UI_URL. Add them to $NAMESPACE from its People tab and they can
+publish under it too; the '$USERNAME' account is yours alone.
 
 Manage the stack from ${BOLD}$(pwd)${NC}:
 

@@ -2054,6 +2054,20 @@ a registry it cannot describe the state of: the credentials it prints exist
 exactly once, so a re-run that "fixed things up" would be a re-run that
 silently invalidated whatever the operator had saved.
 
+**Administrator and namespace are asked for separately**: the script prompts
+for the admin account (defaulting to the login name) and, separately, for the
+organisation packages are published under, creating it through Gitea's API as
+the admin, who becomes its owner. A namespace is a Gitea user *or organisation*
+(D4), and defaulting the publishing namespace to whoever ran the installer
+bakes an individual's name into every package reference in the registry —
+`phil-from-it/backup-rotate` rather than `acme-co/backup-rotate` — which no
+later rename can undo for anything already published. Both are offered as
+questions rather than imposed, and skipping the organisation is allowed but
+says why it is usually wrong. The publish token therefore carries
+`read:organization` from the start, even before any organisation exists,
+because a token minted without it fails the org ACL check later with a
+permission error that names the wrong cause.
+
 **Delivery**: the documented form is `curl ... | sh`, with options after
 `-s --`. That is why the one prompt reads `/dev/tty` and why nothing is asked
 for that could instead be generated. It also forces a guard: a shell reading a

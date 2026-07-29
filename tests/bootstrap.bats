@@ -88,8 +88,22 @@ STUBEOF
     run sh "$SCRIPT" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"--dir"* ]]
+    [[ "$output" == *"--user"* ]]
+    [[ "$output" == *"--org"* ]]
     [[ "$output" == *"--public-url"* ]]
     [[ "$output" == *"SCRIPTICUS_COMPOSE_URL"* ]]
+}
+
+@test "the usage text is printed literally, not evaluated" {
+    # The usage heredoc is unquoted so it can interpolate $DIR and $PORT, which
+    # means backticks and $(...) in the help text would *run*. That failure is
+    # loud in the wrong way: the text still prints, minus whatever the shell
+    # ate, with the error on stderr.
+    run sh "$SCRIPT" --help
+    [[ "$output" != *"syntax error"* ]]
+    [[ "$output" != *"command not found"* ]]
+    # The angle-bracket example survives intact rather than being eaten.
+    [[ "$output" == *"<namespace>/<package>"* ]]
 }
 
 @test "an unknown option fails with the usage message" {
