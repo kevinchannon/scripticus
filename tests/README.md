@@ -32,7 +32,7 @@ the runner, `e2e.sh`:
    [`docker-compose.build.yml`](docker-compose.build.yml) (index from source)
    **plus** [`docker-compose.e2e.yml`](docker-compose.e2e.yml) (`!reset` the
    host ports so it's fully internal — no collision with a dev stack on
-   `:3000`/`:8000`). The shipped compose stays pull-based; the overlays add the
+   `:8000`). The shipped compose stays pull-based; the overlays add the
    source build and the port reset.
 3. **Runs the BATS suite**, driving the client over the single front URL (D45).
 
@@ -85,7 +85,7 @@ defined in the repo-root [tasktree.yaml](../tasktree.yaml).
   the three refusals, project-name derivation — and those branches are the ones
   a real stack makes slow or impossible to reach (an old compose plugin cannot
   be conjured on demand). The happy path is deliberately not covered here: the
-  script polls `http://localhost:<gitea-port>`, which assumes it runs on the
+  script polls `http://localhost:<port>/accounts/`, which assumes it runs on the
   Docker host, and inside the DooD runner localhost is the runner rather than
   the host publishing those ports.
 

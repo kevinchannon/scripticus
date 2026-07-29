@@ -17,8 +17,9 @@ releases publish a Docker image to
 `docker-compose.yml` wires the whole bundle together — no checkout needed.
 The proxy is the single URL clients use (`http://localhost:8000`): it routes
 blob downloads to Gitea and everything else to the index, so a client needs
-no Gitea address of its own (D45). Gitea's web UI stays on
-`http://localhost:3000` for first-run setup.
+no Gitea address of its own (D45). The bundle publishes exactly one port:
+account management is served through the same front at
+`http://localhost:8000/accounts` (D62), so there is no second port to open.
 
 The `get-scripticus-svr` script does the whole standup (D61) — it checks the
 host, fetches the compose bundle, starts it, and creates your Gitea admin
@@ -32,8 +33,10 @@ $ sh get-scripticus-svr
 It asks where to put the stack and prints a username, password, and token at
 the end. **Save all three then** — Gitea shows a token once, and the script
 will not mint a second one for an account that already exists. `--dir`,
-`--user`, `--email`, `--port`, and `--gitea-port` cover the non-interactive
-case; `--help` lists them.
+`--user`, `--email`, and `--port` cover the non-interactive case; `--help`
+lists them. Pass `--public-url` if the registry will not be reached at
+`http://localhost:<port>` — the account pages build their links from it, so
+getting it wrong leaves a working registry with broken links.
 
 It refuses rather than repairs: an existing directory, compose stack, or Gitea
 user stops the run rather than modifying what is already there. It needs
@@ -49,14 +52,16 @@ $ curl http://localhost:8000/health
 {"status":"ok"}
 ```
 
-That leaves the Gitea side to you. Accounts and organisations are managed in
-Gitea (http://localhost:3000), and a Scripticus namespace *is* a Gitea user or
+That leaves the account side to you, and one caveat: standing the bundle up by
+hand leaves Gitea's own page titles in place, since the rename is something the
+script applies. Accounts and organisations are managed at
+`http://localhost:8000/accounts`, and a Scripticus namespace *is* a Gitea user or
 organisation, claimed first-come-first-served, with publish rights following
 Gitea's own membership and ACLs. So, once the bundle is up:
 
-1. Register your user in the Gitea web UI (the first registered user is
-   the instance admin), and create an organisation for any shared
-   namespace you want.
+1. Register your user at `http://localhost:8000/accounts` (the first
+   registered user is the instance admin), and create an organisation for any
+   shared namespace you want.
 2. Generate a token under *Settings → Applications → Manage Access
    Tokens*. It needs **package: Read and Write** (blob upload on publish,
    download on install) and **user: Read** (resolving the token to a login).

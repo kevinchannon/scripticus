@@ -39,9 +39,12 @@ Deployment target for the server side is a single `docker-compose.yml`
 (a reverse proxy fronting the index service + Gitea, SQLite-backed for
 small installations). The proxy presents one user-facing URL and routes
 internally (D45), so clients — and enterprise firewalls — see a single
-endpoint. That file is literally the whole deployment: its proxy routing
-is an inline `configs` entry rather than a bind-mounted `Caddyfile`, so
-fetching it alone is enough to stand the bundle up (D45). Operators are
+endpoint — one published port, with Gitea's web UI served through the same
+front at `/accounts/` (D62), since accounts and organisations are Gitea's
+and administering them is ongoing rather than first-run work. That file is
+literally the whole deployment: its proxy routing is an inline `configs`
+entry rather than a bind-mounted `Caddyfile`, so fetching it alone is
+enough to stand the bundle up (D45). Operators are
 pointed at `get-scripticus-svr` rather than the compose file directly
 (D61) — it preflights the host, fetches the bundle, and mints the Gitea
 admin account and publish token that the manual path leaves them to

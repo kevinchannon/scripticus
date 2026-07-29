@@ -11,7 +11,7 @@
 # client (it installs the wheels and runs BATS itself), so the bundle is only
 # the server side.
 services:
-  gitea:
-    ports: !reset []
+  # Gitea publishes no host port in the base file (D62) — only the proxy does,
+  # and that is what gets reset here.
   proxy:
     ports: !reset []

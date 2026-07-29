@@ -11,7 +11,7 @@
 # A stub reaches every branch in milliseconds and with no shared state.
 #
 # What this deliberately does not cover: the happy path. The script polls
-# `http://localhost:<gitea-port>`, which assumes it runs on the Docker host —
+# `http://localhost:<port>/accounts/`, which assumes it runs on the Docker host —
 # inside the DooD e2e runner, localhost is the runner, not the host publishing
 # those ports. The stand-up it performs is the same one scripts/start-server
 # drives for every other spec in this suite, so the bundle itself is covered;
@@ -88,7 +88,7 @@ STUBEOF
     run sh "$SCRIPT" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"--dir"* ]]
-    [[ "$output" == *"--gitea-port"* ]]
+    [[ "$output" == *"--public-url"* ]]
     [[ "$output" == *"SCRIPTICUS_COMPOSE_URL"* ]]
 }
 

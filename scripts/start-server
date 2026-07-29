@@ -19,7 +19,10 @@ PROJECT="${SC_PROJECT:-scripticus-dev}"
 # base's host ports so a host client can reach the stack. e2e adds its own
 # no-host-ports overlay via SC_COMPOSE_FILES.
 COMPOSE_FILES="${SC_COMPOSE_FILES:--f docker-compose.yml -f tests/docker-compose.build.yml}"
-GITEA_URL="${SC_GITEA_URL:-http://localhost:3000}"   # where to reach Gitea to bootstrap
+# Where to reach Gitea to bootstrap. The bundle publishes no Gitea port (D62),
+# so from the host it is reached through the proxy's /accounts/ prefix; e2e
+# overrides this with the internal address, where Gitea serves at the root.
+GITEA_URL="${SC_GITEA_URL:-http://localhost:8000/accounts}"
 FRONT_URL="${SC_FRONT_URL:-http://localhost:8000}"   # the client-facing front (proxy, D45)
 NAMESPACE="${SC_NAMESPACE:-scripticus-dev}"          # the test user == a namespace (D4)
 PASSWORD="${SC_PASSWORD:-dev-password-1}"

@@ -23,14 +23,19 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+- The bundle now publishes a single port (D62). Gitea's web UI moved behind the
+  proxy at `/accounts/`, so there is no second port to open, firewall, or
+  certificate — set `SCRIPTICUS_PUBLIC_URL` (or `get-scripticus-svr
+  --public-url`) when the registry is not reached at `http://localhost:8000`,
+  since Gitea builds its links from it. The instance is also retitled
+  Scripticus, which the bootstrap script applies.
 - Added `get-scripticus-svr`, a bootstrap script that stands a registry up in one
   command (D61): it preflights the host, fetches the compose bundle, starts it,
   and creates a Gitea admin account with a correctly-scoped publish token,
   printing the password and token once. It refuses rather than repairs — an
   existing directory, stack, or Gitea user stops the run.
-- The bundle's host ports are now `${SCRIPTICUS_PORT}` and
-  `${SCRIPTICUS_GITEA_PORT}`, defaulting to the documented 8000 and 3000, so a
-  second stack can coexist with an existing one.
+- The bundle's host port is now `${SCRIPTICUS_PORT}`, defaulting to the
+  documented 8000, so a second stack can coexist with an existing one.
 - Documented the Gitea token scopes properly: `organization: Read` is also needed
   to publish under an organisation namespace, which the previous instructions
   omitted.

@@ -42,13 +42,13 @@ services:
 
   gitea:
     image: gitea/gitea:1.24
-    # Kept on the host for first-run web setup (registering users/orgs and
-    # minting a publish token); the client never needs this address (D45).
+    # No host port at all (D62): the web UI is reached through the proxy at
+    # /accounts/, so the bundle publishes exactly one port. ROOT_URL must be the
+    # address a browser uses, since Gitea builds every link and redirect from
+    # it — set SCRIPTICUS_PUBLIC_URL when the registry is not on localhost.
     environment:
       GITEA__security__INSTALL_LOCK: "true"
-      GITEA__server__ROOT_URL: http://localhost:${SCRIPTICUS_GITEA_PORT:-3000}/
-    ports:
-      - "${SCRIPTICUS_GITEA_PORT:-3000}:3000"
+      GITEA__server__ROOT_URL: ${SCRIPTICUS_PUBLIC_URL:-http://localhost:8000}/accounts/
     volumes:
       - gitea-data:/data
 
@@ -70,6 +70,10 @@ configs:
   # `{remote.url}/api/packages/...` with its stored Gitea token, which the
   # proxy forwards untouched. The index<->Gitea internal calls (auth, publish
   # uploads) use the internal address directly and never come through here.
+  #
+  # /accounts/ carries the Gitea web UI (D62), which is how a registry publishes
+  # one port rather than two — accounts, organisations, and tokens are Gitea's
+  # (D2/D4), so its UI is ongoing administration, not just first-run setup.
   caddyfile:
     content: |
       :80 {
@@ -78,6 +82,14 @@ configs:
       	# `/version`, so the two never collide.
       	@gitea path /api/packages/*
       	handle @gitea {
+      		reverse_proxy gitea:3000
+      	}
+
+      	# The web UI. handle_path strips the prefix, so Gitea serves its normal
+      	# root-relative routes; ROOT_URL is what puts /accounts/ back on the
+      	# links it generates. Both halves are required — change one and every
+      	# link in the UI points somewhere that does not exist.
+      	handle_path /accounts/* {
       		reverse_proxy gitea:3000
       	}
 

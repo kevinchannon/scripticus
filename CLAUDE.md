@@ -176,7 +176,11 @@ scaffolds; `uninstall` reports orphaned libraries but never removes them. A
 server `Dockerfile` exists, and the root `docker-compose.yml` is the
 registry bundle: a Caddy reverse-proxy front (D45, its Caddyfile inline in
 the compose file so the bundle is genuinely one fetched file) presenting one
-user-facing URL over the index service and Gitea. The documented standup is
+user-facing URL over the index service and Gitea — and exactly one published
+port (D62): Gitea's web UI is served through the same front at `/accounts/`
+(prefix stripped by `handle_path`, `ROOT_URL` set to `SCRIPTICUS_PUBLIC_URL`
+plus that prefix), since accounts, orgs, and tokens are Gitea's (D2/D4) and
+administering them is ongoing work, not first-run setup. The documented standup is
 the root `get-scripticus-svr` script (D61): POSIX sh, it preflights the host,
 fetches the compose file, starts the stack, and mints a Gitea admin account
 plus a `write:package,read:user` token, printing both once; it refuses (never

@@ -31,7 +31,7 @@ DIR_GIVEN=""
 USERNAME=""
 EMAIL=""
 PORT="8000"
-GITEA_PORT="3000"
+PUBLIC_URL=""
 TOKEN_NAME="scripticus-publish"
 # The scopes the index service actually needs: write:package for blob
 # upload/download, read:user to resolve a token to a login. read:organization
@@ -62,7 +62,9 @@ Usage: get-scripticus-svr [options]
                     so use a real identity (default: your login name)
   --email <addr>    admin email (default: <user>@example.invalid)
   --port <n>        host port for the registry front (default: $PORT)
-  --gitea-port <n>  host port for Gitea's web UI (default: $GITEA_PORT)
+  --public-url <u>  the address browsers will use, if not http://localhost:<port>
+                    (e.g. https://registry.example.com) — Gitea builds every
+                    link and redirect from it
   --help            this message
 
 Environment:
@@ -79,7 +81,7 @@ while [ $# -gt 0 ]; do
         --user) [ $# -ge 2 ] || die "--user needs a value"; USERNAME="$2"; shift 2 ;;
         --email) [ $# -ge 2 ] || die "--email needs a value"; EMAIL="$2"; shift 2 ;;
         --port) [ $# -ge 2 ] || die "--port needs a value"; PORT="$2"; shift 2 ;;
-        --gitea-port) [ $# -ge 2 ] || die "--gitea-port needs a value"; GITEA_PORT="$2"; shift 2 ;;
+        --public-url) [ $# -ge 2 ] || die "--public-url needs a value"; PUBLIC_URL="$2"; shift 2 ;;
         --help|-h) usage 0 ;;
         *) printf '%sunknown option: %s%s\n' "$RED" "$1" "$NC" >&2; usage 1 ;;
     esac
@@ -87,6 +89,13 @@ done
 
 [ -n "$USERNAME" ] || USERNAME=$(id -un)
 [ -n "$EMAIL" ] || EMAIL="$USERNAME@example.invalid"
+# Gitea builds every link and redirect from ROOT_URL, so it has to be the
+# address a browser will actually use — not the internal one.
+[ -n "$PUBLIC_URL" ] || PUBLIC_URL="http://localhost:$PORT"
+PUBLIC_URL=${PUBLIC_URL%/}
+# Accounts, organisations, and tokens live in Gitea (D2/D4); the proxy serves
+# its UI here so the bundle needs only the one port (D62).
+UI_URL="$PUBLIC_URL/accounts/"
 
 # Where the stack lives is the one choice worth confirming: it is the directory
 # the operator will come back to for every `docker compose` from here on, and
@@ -208,20 +217,20 @@ mv "$TMP/docker-compose.yml" "$DIR/docker-compose.yml" \
 cd "$DIR"
 
 SCRIPTICUS_PORT="$PORT"
-SCRIPTICUS_GITEA_PORT="$GITEA_PORT"
-export SCRIPTICUS_PORT SCRIPTICUS_GITEA_PORT
+SCRIPTICUS_PUBLIC_URL="$PUBLIC_URL"
+export SCRIPTICUS_PORT SCRIPTICUS_PUBLIC_URL
 
 info "starting the stack (proxy + index + Gitea)"
 if ! docker compose -p "$PROJECT" up -d; then
     die "the stack failed to start.
-   If that was a port clash, re-run with --port/--gitea-port on free ports."
+   If that was a port clash, re-run with --port on a free one."
 fi
 
 info "waiting for Gitea"
 ready=""
 i=0
 while [ "$i" -lt 90 ]; do
-    if fetch "http://localhost:$GITEA_PORT/api/healthz" >/dev/null 2>&1; then
+    if fetch "$PUBLIC_URL/accounts/api/healthz" >/dev/null 2>&1; then
         ready=yes
         break
     fi
@@ -235,11 +244,39 @@ done
 # The Gitea CLI runs as the 'git' user; as root it refuses.
 gitea_cli() { docker compose -p "$PROJECT" exec -T -u git gitea gitea "$@"; }
 
+# APP_NAME titles every page, and the pages an operator sees should say what
+# they came for. It sits in app.ini's unnamed root section, which Gitea's
+# environment-to-ini mapping cannot reach — GITEA__DEFAULT__APP_NAME writes a
+# [DEFAULT] section that Gitea then ignores — so it is edited in place on the
+# generated config, once, here. Cosmetic by design: a failure is not worth
+# stopping a working registry for, and standing the bundle up by hand instead
+# of through this script simply leaves the stock title.
+info "naming the instance"
+docker compose -p "$PROJECT" exec -T gitea \
+    sed -i 's/^APP_NAME =.*/APP_NAME = Scripticus/' /data/gitea/conf/app.ini \
+    >/dev/null 2>&1 \
+    && docker compose -p "$PROJECT" restart gitea >/dev/null 2>&1 \
+    || warn "could not set the instance name; the UI will show Gitea's own"
+
+# Gitea has just restarted, so wait for it again before using the CLI.
+ready=""
+i=0
+while [ "$i" -lt 60 ]; do
+    if fetch "$PUBLIC_URL/accounts/api/healthz" >/dev/null 2>&1; then
+        ready=yes
+        break
+    fi
+    sleep 2
+    i=$((i + 1))
+done
+[ -n "$ready" ] || die "Gitea did not come back after being renamed.
+   Check 'docker compose -p $PROJECT logs gitea'."
+
 if gitea_cli admin user list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$USERNAME"; then
     die "Gitea already has a user '$USERNAME'.
    Refusing to touch an existing account. Its original token cannot be
    re-read (Gitea shows it once), so mint a new one in the web UI at
-   http://localhost:$GITEA_PORT — Settings > Applications, with the
+   $UI_URL — Settings > Applications, with the
    '$TOKEN_SCOPES' scopes."
 fi
 
@@ -264,7 +301,7 @@ TOKEN=$(printf '%s\n' "$created" | sed -n 's/.*Access token was successfully cre
 if [ -z "$PASSWORD" ] || [ -z "$TOKEN" ]; then
     die "could not read the password and token back from Gitea. It said:
 $created
-   The account may exist. Check http://localhost:$GITEA_PORT before re-running."
+   The account may exist. Check $UI_URL before re-running."
 fi
 
 # --- the bit that matters --------------------------------------------------
@@ -275,24 +312,24 @@ ${BOLD}${YELLOW}+---------------------------------------------------------------
 |  SAVE THESE NOW. THEY ARE SHOWN ONCE AND CANNOT BE RECOVERED. |
 +---------------------------------------------------------------+${NC}
 
-  ${BOLD}Registry URL${NC}   http://localhost:$PORT
-  ${BOLD}Gitea web UI${NC}   http://localhost:$GITEA_PORT
+  ${BOLD}Registry URL${NC}   $PUBLIC_URL
+  ${BOLD}Accounts${NC}       $UI_URL
 
   ${BOLD}Username${NC}       $USERNAME
   ${BOLD}Password${NC}       $PASSWORD
   ${BOLD}Token${NC}          $TOKEN
 
-${YELLOW}The password can be reset from the Gitea web UI, but the token cannot
+${YELLOW}The password can be reset from the accounts page, but the token cannot
 be shown again — losing it means minting a replacement.${NC}
 
 Put the token to work:
 
   pipx install scripticus
-  scripticus login http://localhost:$PORT
+  scripticus login $PUBLIC_URL
 
 Your username is also your Scripticus namespace, so you publish as
-${BOLD}$USERNAME/<package>${NC}. Anyone else who publishes here needs their own
-Gitea account; this one is yours.
+${BOLD}$USERNAME/<package>${NC}. Anyone else who publishes here registers their own
+account at $UI_URL; this one is yours.
 
 Manage the stack from ${BOLD}$(pwd)${NC}:
 

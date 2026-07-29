@@ -2077,3 +2077,44 @@ silently invalidated whatever the operator had saved.
   host, which the DooD e2e runner is not.
 - Bad: "refuse and exit" means a run interrupted after user creation leaves a
   stack the script will not touch again; recovery is `down -v` or the web UI.
+
+## D62. The Gitea web UI is served through the proxy; the bundle publishes one port
+
+**Decision**: The bundle publishes only the proxy's port. Gitea's web UI is
+reached at `/accounts/` on the same front URL, which the proxy strips before
+forwarding (`handle_path`), with Gitea's `ROOT_URL` set to the public URL plus
+that prefix so every link and redirect it generates comes back through the
+front. Blob traffic keeps its own root-level route (`/api/packages/*`, D45).
+The public address becomes configuration — `SCRIPTICUS_PUBLIC_URL`, defaulting
+to `http://localhost:8000` — because Gitea must know the address a browser
+uses. The instance is also renamed to Scripticus via `APP_NAME`.
+
+**Reason**: D45 claimed one front URL while the bundle published two ports, and
+the second was pure cost to an operator: another firewall hole and another
+authorisation for something no client ever calls, since the index reaches Gitea
+internally and blob downloads already route through the proxy. Exposing it only
+during setup was considered and rejected on a wrong premise — accounts,
+organisations, and tokens are Gitea's (D2/D4), so its UI is *ongoing*
+administration, and a setup-only window would just move the problem to the
+second publisher. Serving it through the proxy removes the port permanently
+rather than temporarily, and makes the URL a Scripticus one.
+
+**Consequences**:
+- Good: one port to open, authorise, and certificate — D45's claim is now true
+  of the bundle, not just of the client's traffic.
+- Good: users see only Scripticus URLs, and pages titled Scripticus.
+- Neutral: hiding Gitea *completely* was considered and rejected. `APP_NAME`
+  retitles pages, but a "Powered by Gitea" footer, `docs.gitea.com` help links,
+  the meta tags, and a git forge's navigation all remain; removing them means
+  overriding Gitea's templates and re-doing it at every upgrade, against D2's
+  premise that Gitea is the substrate rather than an embarrassment.
+- Bad: `ROOT_URL` must match the address browsers actually use, so a registry
+  not on `http://localhost:8000` has a setting it must get right, and getting
+  it wrong breaks links in a way the health check does not catch.
+- Bad: `APP_NAME` lives in `app.ini`'s unnamed root section, which Gitea's
+  environment-to-ini mapping cannot reach (`GITEA__DEFAULT__APP_NAME` writes a
+  `[DEFAULT]` section Gitea ignores). `get-scripticus-svr` edits the generated
+  file and restarts Gitea, so a bundle stood up by hand keeps the stock title.
+- Bad: a sub-path deployment is a less-travelled Gitea configuration than a
+  root one; an upgrade could plausibly break a route the e2e suite does not
+  exercise.
