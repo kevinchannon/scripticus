@@ -26,17 +26,33 @@ host, fetches the compose bundle, starts it, and creates your Gitea admin
 account with a correctly-scoped publish token:
 
 ```console
-$ curl -fsSLO https://raw.githubusercontent.com/kevinchannon/scripticus/main/get-scripticus-svr
-$ sh get-scripticus-svr
+$ curl -fsSL https://raw.githubusercontent.com/kevinchannon/scripticus/main/get-scripticus-svr | sh
 ```
 
 It asks where to put the stack and prints a username, password, and token at
 the end. **Save all three then** — Gitea shows a token once, and the script
-will not mint a second one for an account that already exists. `--dir`,
-`--user`, `--email`, and `--port` cover the non-interactive case; `--help`
-lists them. Pass `--public-url` if the registry will not be reached at
+will not mint a second one for an account that already exists.
+
+Options go after `-s --`, since a pipe leaves nowhere else to put them:
+
+```console
+$ curl -fsSL .../get-scripticus-svr | sh -s -- --dir /srv/registry --port 9000
+```
+
+`--dir`, `--user`, `--email`, and `--port` cover the non-interactive case;
+`--help` lists them. Pass `--public-url` if the registry will not be reached at
 `http://localhost:<port>` — the account pages build their links from it, so
 getting it wrong leaves a working registry with broken links.
+
+If you would rather read it before running it — a fair instinct for anything
+piped into a shell — download it first and run it separately; the script
+behaves identically either way:
+
+```console
+$ curl -fsSLO https://raw.githubusercontent.com/kevinchannon/scripticus/main/get-scripticus-svr
+$ less get-scripticus-svr
+$ sh get-scripticus-svr
+```
 
 It refuses rather than repairs: an existing directory, compose stack, or Gitea
 user stops the run rather than modifying what is already there. It needs

@@ -278,6 +278,36 @@ STUBEOF
     [[ "$output" == *"could not download"* ]]
 }
 
+@test "the script works when piped to sh, with arguments after -s --" {
+    # The documented one-liner. Arguments cannot follow `| sh` directly; they
+    # go after `-s --`, and that is what the README tells people to type.
+    run sh -c "cat '$SCRIPT' | sh -s -- --help"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"--dir"* ]]
+}
+
+@test "a truncated download runs nothing at all" {
+    # A shell reading a pipe executes as it goes, so an interrupted transfer
+    # would otherwise run a partial script — possibly far enough to start a
+    # stack but not to bootstrap it. The whole body is one compound command,
+    # so an incomplete copy is a syntax error instead.
+    cat > "$STUB/docker" <<STUBEOF
+#!/bin/sh
+touch "$WORK/docker-was-called"
+exit 0
+STUBEOF
+    chmod +x "$STUB/docker"
+
+    size=$(wc -c < "$SCRIPT")
+    for pct in 30 60 90 99; do
+        head -c $((size * pct / 100)) "$SCRIPT" > "$WORK/partial"
+        run sh -c "cat '$WORK/partial' | sh -s -- --dir '$WORK/reg'"
+        [ "$status" -ne 0 ]
+        [ ! -e "$WORK/docker-was-called" ]
+        [ ! -e "$WORK/reg" ]
+    done
+}
+
 @test "with no controlling terminal the default directory is used, not a hang" {
     command -v setsid >/dev/null || skip "needs setsid to drop the controlling terminal"
 

@@ -2054,6 +2054,15 @@ a registry it cannot describe the state of: the credentials it prints exist
 exactly once, so a re-run that "fixed things up" would be a re-run that
 silently invalidated whatever the operator had saved.
 
+**Delivery**: the documented form is `curl ... | sh`, with options after
+`-s --`. That is why the one prompt reads `/dev/tty` and why nothing is asked
+for that could instead be generated. It also forces a guard: a shell reading a
+pipe executes as it goes, so an interrupted transfer would run a truncated
+script — plausibly far enough to start a stack and not far enough to bootstrap
+it. The whole body is one compound command, so an incomplete copy is a syntax
+error that runs nothing. Downloading first and running it separately behaves
+identically, and the README documents that too.
+
 **Consequences**:
 - Good: one fetched artifact, and the only real decision (where it lives) is
   asked rather than assumed. The compose file becomes an implementation

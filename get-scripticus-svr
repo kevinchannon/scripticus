@@ -7,17 +7,28 @@
 # Gitea's web UI to find the right token scopes; this is that, without the
 # guesswork.
 #
-#   sh get-scripticus-svr                  # into ./scripticus-svr
-#   sh get-scripticus-svr --dir /srv/reg --user alice --port 9000
+#   curl -fsSL <raw-url> | sh                     # into ./scripticus-svr
+#   curl -fsSL <raw-url> | sh -s -- --dir /srv/reg --user alice --port 9000
+#   sh get-scripticus-svr                          # same, downloaded first
 #
 # POSIX sh on purpose: it is fetched and run on machines we know nothing about,
-# and it must behave the same when piped to `sh` (prompts would break there, so
-# there are none — see D61 on the printed random password).
+# and it must behave the same when piped to `sh`. That shapes two things: the
+# only prompt reads from /dev/tty rather than stdin (which is the script), and
+# secrets are generated and printed rather than asked for (D61).
 #
 # It refuses rather than repairs. An existing directory, stack, or Gitea user
 # stops the run with an explanation, because the alternative is a script that
 # half-owns somebody's registry and cannot tell you what state it left behind.
 set -eu
+
+# Everything below is one compound command, so `sh` must read to the closing
+# brace before it runs any of it. That matters for the piped form: a shell
+# reading a pipe executes as it goes, so a connection dropped mid-transfer
+# would otherwise run a truncated script — far enough to start a stack,
+# perhaps, but not far enough to bootstrap it. Unterminated, this is a syntax
+# error and nothing happens at all. The body is left unindented on purpose;
+# the brace is a delivery mechanism, not structure worth reading past.
+{
 
 RAW_BASE="https://raw.githubusercontent.com/kevinchannon/scripticus"
 REF="${SCRIPTICUS_REF:-main}"
@@ -339,3 +350,4 @@ Manage the stack from ${BOLD}$(pwd)${NC}:
   docker compose -p $PROJECT down -v       # stop and delete everything
 
 EOF
+}  # end of the read-it-all-before-running guard

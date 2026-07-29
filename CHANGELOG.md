@@ -30,7 +30,7 @@ Releases before this file exists are recorded only in the git tags and in
   since Gitea builds its links from it. The instance is also retitled
   Scripticus, which the bootstrap script applies.
 - Added `get-scripticus-svr`, a bootstrap script that stands a registry up in one
-  command (D61): it preflights the host, fetches the compose bundle, starts it,
+  command — `curl -fsSL <url> | sh` (D61): it preflights the host, fetches the compose bundle, starts it,
   and creates a Gitea admin account with a correctly-scoped publish token,
   printing the password and token once. It refuses rather than repairs — an
   existing directory, stack, or Gitea user stops the run.
