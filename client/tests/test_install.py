@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from scripticus.cli import app
+from scripticus.init import path_line, profile_path
 from scripticus.pack import pack_package
 from scripticus.scaffold import scaffold_package
 
@@ -299,3 +300,97 @@ def test_unsupported_archive_format_is_an_error(home, tmp_path):
     result = runner.invoke(app, ["install", "-f", str(not_archive), "-y"])
     assert result.exit_code == 1
     assert "not a supported archive" in result.output
+
+
+# --- Bootstrap-on-install (D63) -------------------------------------------
+#
+# `install` does `init`'s job itself, so a machine that never ran `init` still
+# ends up able to run what it installed. The POSIX branch is the one under
+# test; the Windows registry write is stubbed by the conftest isolation.
+
+posix_only = pytest.mark.skipif(
+    os.name == "nt", reason="profile-file PATH setup is the POSIX branch"
+)
+
+
+def squash(text: str) -> str:
+    """Drop all whitespace, so an assertion survives Rich's wrapping.
+
+    Collapsing to single spaces is not enough: a tmp-dir path exceeds the
+    conftest's 120 columns on its own, and Rich folds an over-long token
+    *mid-path* rather than at a space.
+    """
+    return "".join(text.split())
+
+
+@posix_only
+def test_install_bootstraps_path_without_init(home, tmp_path, isolated_user_home):
+    archive = build_archive(tmp_path)
+
+    result = runner.invoke(app, ["install", "-f", str(archive), "-y"])
+    assert result.exit_code == 0, result.output
+
+    profile = profile_path()
+    assert path_line(home / "bin") in profile.read_text()
+    # Reported, not silent: the edit is outside SCRIPTICUS_HOME.
+    assert squash(f"Added {home / 'bin'} to PATH in {profile}") in squash(result.output)
+    assert squash("restart your shell") in squash(result.output)
+
+
+@posix_only
+def test_install_bootstrap_note_comes_after_the_install_summary(home, tmp_path):
+    archive = build_archive(tmp_path)
+
+    result = runner.invoke(app, ["install", "-f", str(archive), "-y"])
+    output = squash(result.output)
+    assert output.index("Installed") < output.index(squash("restart your shell"))
+
+
+@posix_only
+def test_install_says_nothing_when_the_bin_dir_is_already_on_path(
+    home, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PATH", f"{os.environ['PATH']}{os.pathsep}{home / 'bin'}")
+    archive = build_archive(tmp_path)
+
+    result = runner.invoke(app, ["install", "-f", str(archive), "-y"])
+    assert result.exit_code == 0, result.output
+
+    assert not profile_path().exists()
+    assert squash("restart your shell") not in squash(result.output)
+    assert "PATH" not in squash(result.output)
+
+
+@posix_only
+def test_second_install_does_not_repeat_the_path_line_or_the_note(home, tmp_path):
+    runner.invoke(app, ["install", "-f", str(build_archive(tmp_path)), "-y"])
+
+    result = runner.invoke(
+        app, ["install", "-f", str(build_archive(tmp_path, name="other-tool")), "-y"]
+    )
+    assert result.exit_code == 0, result.output
+
+    assert profile_path().read_text().count(path_line(home / "bin")) == 1
+    # The line was already there, so there is nothing new to announce — but the
+    # shell that is running still cannot see the bin dir, so the nag stays.
+    assert "Added" not in result.output
+    assert squash("restart your shell") in squash(result.output)
+
+
+@posix_only
+def test_install_lays_down_the_library_loader(home, tmp_path):
+    # `init` used to be the only thing that put scr_load.sh in place before a
+    # library was installed (D57); installing anything now does too.
+    runner.invoke(app, ["install", "-f", str(build_archive(tmp_path)), "-y"])
+
+    assert (home / "lib" / "scr_load.sh").is_file()
+
+
+@posix_only
+def test_declined_install_touches_no_profile(home, tmp_path):
+    archive = build_archive(tmp_path)
+
+    result = runner.invoke(app, ["install", "-f", str(archive)], input="n\n")
+    assert result.exit_code == 1
+
+    assert not profile_path().exists()

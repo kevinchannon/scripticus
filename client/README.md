@@ -15,23 +15,36 @@ Python:
 
 ```console
 $ pipx install scripticus       # or: uv tool install scripticus
-$ scripticus init               # creates ~/.scripticus, adds bin dir to PATH
 ```
 
-Restart your shell (or re-source your profile) so `~/.scripticus/bin` is on
-your PATH.
-
-Point the client at your organisation's registries. Your org's onboarding
-docs will give you the exact lines to run:
+Then point the client at your organisation's registry and authenticate to it.
+`login` does both: given a URL it registers the remote as well as storing the
+token. Your org's onboarding docs will give you the exact line to run:
 
 ```console
-$ scripticus config remote add tools https://scripticus.example.com
-$ scripticus config tools --install="apt-get install -y {packages}" --escalate=sudo
+$ scripticus login tools https://scripticus.example.com
 ```
+
+That's the whole setup. There is no separate initialisation step: the first
+`install` creates `~/.scripticus`, puts its `bin` directory on your PATH, and
+tells you it did — you only need to restart your shell (or re-source your
+profile) once, afterwards, before the commands you installed will run.
+
+To do that PATH change up front instead, run `scripticus init`; it is the same
+work, and safe to re-run. `scripticus config remote add <name> <url>` is the
+no-token way to add a remote if you would rather not log in yet.
 
 Remotes are searched in the order you add them, which is also the search path
 for bare package names — so add them the way your organisation expects them to
 resolve. `config remote list` shows the current set.
+
+If your packages need system tools installed, your org will also give you a
+`[tools]` line — this one is deliberately local-only, never fetched, since it
+runs a package manager with elevation:
+
+```console
+$ scripticus config tools --install="apt-get install -y {packages}" --escalate=sudo
+```
 
 ## Everyday usage
 
@@ -279,8 +292,9 @@ source it first:
 scr_load infra/strings
 ```
 
-`scripticus init` exports `SCRIPTICUS_LIB` alongside the PATH entry, so this
-works in any shell once you have run it.
+The PATH bootstrap exports `SCRIPTICUS_LIB` alongside the PATH entry, so this
+works in any shell once your first `install` (or `scripticus init`) has run and
+you have restarted it.
 
 Loading is transitive (a library may load other libraries), and repeat loads
 are free — loading the same library twice, or via two different paths, does

@@ -24,7 +24,7 @@ from scripticus.config import (
     save_tools,
 )
 from scripticus.credentials import CredentialsError, resolve_token, set_token
-from scripticus.init import ensure_persistent_path, ensure_skeleton, on_path
+from scripticus.init import bootstrap
 from scripticus.install import (
     InstallError,
     Transaction,
@@ -113,23 +113,55 @@ def main(
 
 @app.command()
 def init() -> None:
-    """One-time setup: create ~/.scripticus and put its bin dir on PATH."""
+    """Set a machine up: create ~/.scripticus and put its bin dir on PATH.
+
+    Optional — `install` does the same work itself (D63). Run it to get the
+    PATH change out of the way before installing anything.
+    """
     home = scripticus_home()
     bin_dir = home / "bin"
+    result = bootstrap(home)
 
-    if ensure_skeleton(home):
+    if result.created_home:
         console.print(f"Created {home} (bin/)")
 
-    if on_path(bin_dir):
+    if result.on_live_path:
         console.print(f"{bin_dir} is already on your PATH — nothing more to do")
         return
 
-    changed, where = ensure_persistent_path(bin_dir)
-    if changed:
-        console.print(f"Added {bin_dir} to PATH in {where}")
+    if result.path_changed:
+        console.print(f"Added {bin_dir} to PATH in {result.path_location}")
     else:
-        console.print(f"{bin_dir} is already configured in {where}")
+        console.print(f"{bin_dir} is already configured in {result.path_location}")
     console.print("Restart your shell (or re-source your profile) to pick it up.")
+
+
+def _auto_bootstrap(home: Path) -> list[str]:
+    """Run `init`'s setup as part of an install (D63); return what to say after.
+
+    Called at the install's commit point, once the transaction is accepted and
+    before anything is written, so a machine that never ran `init` still ends
+    up with runnable commands rather than shims in a directory nothing
+    searches.
+
+    Only the PATH work is reported. Creating ``~/.scripticus`` is plumbing the
+    user did not ask about, but an edited profile is a change *outside* it, and
+    a bin dir this shell cannot see means the commands just installed will not
+    run until it restarts — neither can be silent.
+    """
+    result = bootstrap(home)
+    if result.on_live_path:
+        return []
+
+    notes = []
+    if result.path_changed:
+        notes.append(f"Added {home / 'bin'} to PATH in {result.path_location}")
+    notes.append(
+        f"[yellow]note:[/yellow] {home / 'bin'} is not on this shell's PATH yet —"
+        " restart your shell (or re-source your profile) to run the commands"
+        " installed above."
+    )
+    return notes
 
 
 def _validate_language(value: str) -> str:
@@ -421,6 +453,7 @@ def _install_local(file: Path, mode: Optional[str]) -> None:
             )
             raise typer.Exit(code=1)
 
+        notes = _auto_bootstrap(home)
         apply_install(transaction, home)
 
         console.print(f"\nInstalled [bold]{transaction.package_id}[/bold] {transaction.version}")
@@ -428,6 +461,8 @@ def _install_local(file: Path, mode: Optional[str]) -> None:
             console.print("Overwritten shims:")
             for conflict in transaction.conflicts:
                 console.print(f"  {conflict.shim}  (was {conflict.owner})")
+        for note in notes:
+            console.print(note)
     finally:
         shutil.rmtree(transaction.staging, ignore_errors=True)
 
@@ -550,6 +585,8 @@ def _install_remote(
         )
         raise typer.Exit(code=1)
 
+    notes = _auto_bootstrap(home)
+
     try:
         staging_root, staged = stage_downloads(plan)
     except RemoteInstallError as exc:
@@ -574,6 +611,8 @@ def _install_remote(
         console.print("Overwritten shims:")
         for conflict in plan.conflicts:
             console.print(f"  {conflict.shim}  (was {conflict.owner})")
+    for note in notes:
+        console.print(note)
 
 
 def _print_held_back(plans: "list[tuple]") -> None:

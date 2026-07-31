@@ -21,6 +21,15 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### schema
 
+### client
+
+- `scripticus init` is no longer a step you have to remember: `install` runs the
+  same bootstrap itself (D63), creating `~/.scripticus`, putting its `bin`
+  directory on your PATH, and saying so. Setting a machine up is now `pipx
+  install scripticus` followed by one `scripticus login <name> <url>`, which
+  registers the remote as well as storing the token. `init` still exists for
+  doing the PATH change up front.
+
 ### server
 
 - The bundle now publishes a single port (D62). Gitea's web UI moved behind the

@@ -401,8 +401,9 @@ Everything lives under `~/.scripticus/`:
   on, and `uninstall` names it rather than removing it — it never removes a
   package the user did not name, exactly as it already leaves orphaned command
   packages alone (D57).
-- **`bin/`** — the shim directory, added to PATH once at client install
-  time by `scripticus init` (D39). POSIX shims are symlinks or one-line
+- **`bin/`** — the shim directory, added to PATH once by the bootstrap the
+  first `install` runs for itself, or by `scripticus init` beforehand (D39,
+  D63 — one idempotent `init.bootstrap()` behind both). POSIX shims are symlinks or one-line
   wrappers; Windows shims are
   generated `.cmd` files invoking the correct interpreter (interpreter choice
   comes from the manifest's language field; no compiled shims needed since
@@ -422,7 +423,7 @@ Everything lives under `~/.scripticus/`:
   one-to-one.
 
 - **`lib/`** — the library staging tree (D57). It holds the `scr_load` loader
-  itself (`lib/scr_load.sh`, laid down by `scripticus init` and refreshed by
+  itself (`lib/scr_load.sh`, laid down by the bootstrap and refreshed by
   every library install) plus one generated wrapper per installed library at
   `lib/<namespace>/<name>/load.sh`. The path is **version-less** — the closure
   pins exactly one version — so the wrapper is what points it at the versioned
@@ -442,7 +443,8 @@ and no environment variable can inject one into an `exec`ed process
 parameters pass through a dot-source unchanged and the shim exits with the
 script's status; the visible cost is that `$0` inside the script is the shim.
 A user's own ad-hoc script opts in instead, sourcing `$SCRIPTICUS_LIB/scr_load.sh`
-— which is why `init` exports `SCRIPTICUS_LIB` alongside its PATH line (D39).
+— which is why the bootstrap exports `SCRIPTICUS_LIB` alongside its PATH line
+(D39/D63).
 Windows `.cmd` shims are unchanged: `cmd.exe` cannot source a POSIX loader.
 
 `scr_load <namespace>/<name>` itself is POSIX `sh`, since it is sourced into

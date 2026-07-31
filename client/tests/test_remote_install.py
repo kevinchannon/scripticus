@@ -18,6 +18,7 @@ import scripticus.tools as tools_module
 from scripticus.cli import app
 from scripticus.config import Remote, save_remotes
 from scripticus.credentials import set_token
+from scripticus.init import path_line, profile_path
 from scripticus.pack import pack_package
 from scripticus.remote_install import (
     RemoteInstallError,
@@ -525,3 +526,57 @@ def test_remote_install_reports_shim_conflict_with_outside_package(home, tmp_pat
     # newtool was not installed (conflict aborted the transaction)
     assert not (home / "pkgs" / "acme" / "newtool").exists()
     _ = other  # unused archive kept for clarity
+
+
+@pytest.mark.skipif(os.name == "nt", reason="profile-file PATH setup is the POSIX branch")
+def test_remote_install_bootstraps_path_without_init(home, tmp_path, monkeypatch):
+    """The remote path bootstraps too (D63) — a first-ever `install acme/x` on
+    a machine that never ran `init` still leaves a runnable command."""
+    archive, chash, pointer = make_package(tmp_path, "my-tool")
+    save_remotes(home, [Remote("origin", URL)])
+    set_token(home, URL, "tok")
+
+    def resolve_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "packages": [resolved_pkg("acme", "my-tool", "0.1.0", chash, pointer)],
+                "tools": [],
+            },
+        )
+
+    fake_server(monkeypatch, resolve_handler, {pointer: archive.read_bytes()})
+
+    result = runner.invoke(app, ["install", "acme/my-tool", "-y"])
+    assert result.exit_code == 0, result.output
+
+    assert path_line(home / "bin") in profile_path().read_text()
+    squashed = "".join(result.output.split())
+    assert "".join(f"Added {home / 'bin'} to PATH".split()) in squashed
+    # Last word, after the list of what was installed.
+    assert squashed.index("Installed") < squashed.index("restartyourshell")
+
+
+def test_remote_install_says_nothing_when_the_bin_dir_is_already_on_path(
+    home, tmp_path, monkeypatch
+):
+    archive, chash, pointer = make_package(tmp_path, "my-tool")
+    save_remotes(home, [Remote("origin", URL)])
+    set_token(home, URL, "tok")
+    monkeypatch.setenv("PATH", f"{os.environ['PATH']}{os.pathsep}{home / 'bin'}")
+
+    def resolve_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "packages": [resolved_pkg("acme", "my-tool", "0.1.0", chash, pointer)],
+                "tools": [],
+            },
+        )
+
+    fake_server(monkeypatch, resolve_handler, {pointer: archive.read_bytes()})
+
+    result = runner.invoke(app, ["install", "acme/my-tool", "-y"])
+    assert result.exit_code == 0, result.output
+    assert "restartyourshell" not in "".join(result.output.split())
+    assert not profile_path().exists()

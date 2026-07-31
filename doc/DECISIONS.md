@@ -2141,3 +2141,43 @@ rather than temporarily, and makes the URL a Scripticus one.
 - Bad: a sub-path deployment is a less-travelled Gitea configuration than a
   root one; an upgrade could plausibly break a route the e2e suite does not
   exercise.
+
+---
+
+## D63. `install` bootstraps PATH itself; `init` becomes optional
+
+**Decision**: `install` runs D39's whole bootstrap — state skeleton, loader,
+persistent PATH entry, `SCRIPTICUS_LIB` export — at its own commit point, after
+the transaction is accepted and before anything is written. `init` keeps its
+command and its output, and both call one `init.bootstrap()`. The PATH work is
+reported in the install's output, since it changes a file outside
+`~/.scripticus`; creating the state directory is not. A bin directory already
+on the live PATH suppresses the whole thing silently. Setup is now `pipx
+install` plus one `login <name> <url>`, which D35 already made an add-and-
+authenticate shortcut — the client README documents that pair rather than the
+`config remote add` + `login` pair.
+
+**Reason**: nothing in Python packaging can run at install time — wheels have
+no post-install hook, and pip/pipx/uv all build a wheel before installing, so
+an sdist's `setup.py` never runs on the user's machine either. `init` existed
+because of that gap (D39), but a step whose omission is only discovered later,
+as "command not found" for something the tool just said it installed, is a
+worse trade than doing the idempotent thing unasked. The bootstrap was already
+safe to repeat, so making it implicit costs nothing and removes the one step a
+new user has no way to know they skipped.
+
+**Consequences**:
+- Good: two commands to a working client, and the failure mode `init` guarded
+  against can no longer happen.
+- Good: one bootstrap implementation, so `init` and `install` cannot drift.
+- Good: `install` was already the only command that needs the bin dir findable,
+  so nothing else had to grow the behaviour — `update` and `use` inherit it,
+  since neither can run before an install.
+- Bad: `install` now edits a shell profile, which is a side effect outside
+  `SCRIPTICUS_HOME` from a command not named for it. Mitigated by reporting it
+  and by D39's guard markers (one line to remove), but there is no opt-out
+  short of putting the bin dir on PATH yourself first.
+- Bad: the client test suite can now write to `Path.home()`, so an autouse
+  fixture fakes `HOME`/`USERPROFILE`. The Windows registry branch has no fake
+  to point at and is stubbed there instead — no worse covered than before, but
+  now load-bearing for keeping tests off the runner's own PATH.

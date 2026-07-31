@@ -1,8 +1,9 @@
-"""Shared fixtures for the remote-install / update CLI tests.
+"""Shared fixtures for the client test suite.
 
 Under pytest's importlib import mode sibling test modules cannot import each
-other, so the fake-server harness both suites need is exposed here as
-fixtures (the import-mode-agnostic sharing mechanism)."""
+other, so the fake-server harness the remote-install and update suites both
+need is exposed here as fixtures (the import-mode-agnostic sharing mechanism).
+The user-home isolation below is autouse and applies to every client test."""
 
 import json
 import os
@@ -12,12 +13,35 @@ from pathlib import Path
 import httpx
 import pytest
 
+import scripticus.init as init
 import scripticus.remote_install as remote_install
 from scripticus.pack import pack_package
 from scripticus.scaffold import scaffold_package
 from scripticus_common.treehash import tree_hash
 
 REG_URL = "https://reg.example.com"
+
+
+@pytest.fixture(autouse=True)
+def isolated_user_home(tmp_path_factory, monkeypatch):
+    """Keep the persistent-PATH bootstrap off the developer's real machine.
+
+    `install` runs `init`'s bootstrap itself (D63), so any test that installs
+    now writes *outside* ``SCRIPTICUS_HOME``: on POSIX to a profile file under
+    ``Path.home()``, which a fake ``HOME``/``USERPROFILE`` redirects safely
+    (the real code path still runs, against a throwaway file). Windows has no
+    fake registry to point at, so the ``HKCU\\Environment`` write is stubbed
+    out — the Windows branch is covered by nothing here, exactly as it was
+    before, rather than by editing the test runner's own PATH.
+    """
+    fake_home = tmp_path_factory.mktemp("user-home")
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+    if os.name == "nt":
+        monkeypatch.setattr(
+            init, "_ensure_windows_path", lambda bin_dir: (False, "a stubbed user PATH")
+        )
+    return fake_home
 
 
 @pytest.fixture

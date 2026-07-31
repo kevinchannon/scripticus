@@ -75,7 +75,10 @@ section from the remotes' `GET /packages` catalog minus what's installed,
 `--installed` (offline) / `--available` to restrict; the glob runs
 server-side via the shared `scripticus_common.identity_glob` primitive so the
 installed and available halves match identically, D50), and `init` (post-install PATH bootstrap, D39 —
-`init.py`). The shared code is split by function (D51). `schema/`
+`init.py`; **optional since D63** — `install` calls the same idempotent
+`init.bootstrap()` at its commit point, so a machine that never ran `init`
+still gets a findable `bin/`, and setup is `pipx install` plus one
+`login <name> <url>`). The shared code is split by function (D51). `schema/`
 (`scripticus_schema`) holds the **declarative shapes**: the Pydantic manifest
 model and validation (`manifest.py`, whose version field reuses `common`'s
 semver grammar), plus the wire models for the read API (`index_api.py`, D30),

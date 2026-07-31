@@ -1,4 +1,4 @@
-"""One-time post-install bootstrap (`scripticus init`, D39).
+"""One-time post-install bootstrap (`scripticus init`, D39; `install`, D63).
 
 pip cannot edit a shell profile, so the "bin dir added to PATH once at
 install time" step D11's shim scheme assumes needs a command. POSIX gets
@@ -7,9 +7,15 @@ one guarded line appended to a single profile file chosen from ``$SHELL``
 ``~/.profile``); Windows gets the bin directory appended to the per-user
 ``Path`` registry value. Idempotent throughout: nothing is written when
 the bin directory is already on the live PATH or already in the target.
+
+Because it is idempotent, it need not be a step the user remembers: the whole
+job is ``bootstrap()``, which `install` runs at its own commit point (D63) so
+a shim is never written into a directory the shell cannot find. `init` remains
+for setting a machine up before installing anything.
 """
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from scripticus import libraries
@@ -104,3 +110,30 @@ def ensure_persistent_path(bin_dir: Path, environ=os.environ) -> tuple[bool, str
     if os.name == "nt":
         return _ensure_windows_path(bin_dir)
     return _ensure_profile_path(bin_dir, environ)
+
+
+@dataclass
+class Bootstrap:
+    """What a bootstrap run had to do. Every flag is False on a machine that
+    was already set up, which is what lets callers stay quiet about it.
+    """
+
+    created_home: bool
+    path_changed: bool
+    path_location: str
+    on_live_path: bool
+
+
+def bootstrap(home: Path, environ=os.environ) -> Bootstrap:
+    """The whole of `init`'s job, idempotently (D63).
+
+    A bin directory already on the live PATH suppresses the persistent edit
+    entirely — the manual setups D39 respects are exactly the ones that need
+    nothing done.
+    """
+    bin_dir = home / "bin"
+    created = ensure_skeleton(home)
+    if on_path(bin_dir, environ):
+        return Bootstrap(created, path_changed=False, path_location="", on_live_path=True)
+    changed, where = ensure_persistent_path(bin_dir, environ)
+    return Bootstrap(created, changed, where, on_live_path=False)
