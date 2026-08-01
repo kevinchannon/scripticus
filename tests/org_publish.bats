@@ -40,28 +40,14 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"${org}/${pkg}"* ]]
     [[ "$output" != *"$SCRIPTICUS_E2E_ORG_USER/${pkg}"* ]]
-}
 
-@test "an organisation package installs and runs like any other" {
-    local org="$SCRIPTICUS_E2E_ORG"
-    local pkg
-    pkg="$(unique_pkg)"
-
-    register_remote
-    author_org_package "$pkg" 0.1.0
-    run env SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_ORG_TOKEN" \
-        scripticus publish "builds/${pkg}-0.1.0"
-    [ "$status" -eq 0 ]
-
-    # Reads are anonymous, but `install` still needs a *stored* token for the
-    # blob fetch — SCRIPTICUS_TOKEN above covered only the publish. `login` on
-    # the already-registered remote just adds the credential.
+    # Install it back. Not a repeat of the lifecycle arc: the blob pointer is
+    # namespace-scoped, so this is the one assertion that the round trip works
+    # for an organisation — the index listing above would pass either way.
     run do_login
     [ "$status" -eq 0 ]
-
     run scripticus install "${org}/${pkg}" --yes
     [ "$status" -eq 0 ]
-
     run "$pkg"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Hello from ${pkg}!"* ]]

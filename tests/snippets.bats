@@ -1,9 +1,11 @@
 #!/usr/bin/env bats
 # The snippet lifecycle (D58): author boilerplate in several languages, publish
 # it, find it by what it contains, install it, and print it with `snip` —
-# including the standalone `snip` binary, the stdout-only contract that makes
-# `snip x >> script` work, and the listing that an ambiguous token gets instead
-# of a silently chosen winner.
+# including the standalone `snip` binary and the stdout-only contract that makes
+# `snip x >> script` work.
+#
+# Ambiguity, precedence, and the error paths live in client/tests/test_snip.py,
+# which reaches them without a registry.
 
 load 'lib/helpers'
 
@@ -85,30 +87,3 @@ setup() {
     [ "$output" = "# sh arg parsing" ]
 }
 
-@test "two packages providing the same snippet token list instead of last-install-wins" {
-    local ns="$SCRIPTICUS_E2E_NAMESPACE"
-    local first second
-    first="$(unique_pkg)"
-    second="$(unique_pkg)"
-
-    run author_and_publish_snippets "$first" 0.1.0 trap.sh '# first trap'
-    [ "$status" -eq 0 ]
-    run author_and_publish_snippets "$second" 0.1.0 trap.sh '# second trap'
-    [ "$status" -eq 0 ]
-
-    run scripticus install "${ns}/${first}" --yes
-    [ "$status" -eq 0 ]
-    run scripticus install "${ns}/${second}" --yes
-    [ "$status" -eq 0 ]
-
-    # The second install does not take the token: with no shim to own, there is
-    # nothing to win, so `snip` shows both and lets the user choose.
-    run snip trap.sh
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"${ns}/${first}:trap.sh"* ]]
-    [[ "$output" == *"${ns}/${second}:trap.sh"* ]]
-
-    run snip "${ns}/${first}:trap.sh"
-    [ "$status" -eq 0 ]
-    [ "$output" = "# first trap" ]
-}

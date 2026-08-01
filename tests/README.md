@@ -79,11 +79,10 @@ can demonstrate.
 - [`snippets.bats`](snippets.bats) — the snippet lifecycle (D58): author
   multi-language boilerplate → publish → find it by snippet name and language →
   install (no shims) → `snip` on stdout via both the standalone binary and
-  `scripticus snip`, plus the listing an ambiguous token gets.
+  `scripticus snip`.
 - [`commands.bats`](commands.bats) — command-shim claims: a multi-command
   package exposing a shim per command (and the guaranteed `<ns>.<pkg>.<cmd>`
-  form), `uninstall` removing a package's shims, and `use` re-pointing a
-  contested convenience shim.
+  form), and `uninstall` removing a package's shims.
 - [`org_publish.bats`](org_publish.bats) — publishing to an **organisation**
   namespace (D4), which the specs above never touch: they publish under the test
   user, where `can_publish` short-circuits on `namespace == user` and never asks
@@ -93,6 +92,11 @@ can demonstrate.
   *askable* at all. The negative test pairs with a control: the same
   under-scoped token still publishes fine to its own user namespace, so the
   failure is provably about the organisation lookup rather than a bad token.
+
+Error and edge cases that used to live here — the sh/bash sourcing refusal, the
+orphaned-library advisory, the ambiguous-snippet listing, `use` re-pointing a
+contested shim — moved out to the pytest suite, which already covered each of
+them by name and reaches them without a stack.
 
 ## The shell-script suite (`tt script-test`)
 
