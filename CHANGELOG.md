@@ -21,15 +21,6 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### schema
 
-### client
-
-- `scripticus init` is no longer a step you have to remember: `install` runs the
-  same bootstrap itself (D63), creating `~/.scripticus`, putting its `bin`
-  directory on your PATH, and saying so. Setting a machine up is now `pipx
-  install scripticus` followed by one `scripticus login <name> <url>`, which
-  registers the remote as well as storing the token. `init` still exists for
-  doing the PATH change up front.
-
 ### server
 
 - The bundle now publishes a single port (D62). Gitea's web UI moved behind the
@@ -63,6 +54,22 @@ Releases before this file exists are recorded only in the git tags and in
   Needs Docker Compose v2.23.1 or newer.
 
 ### client
+
+- Scripticus now suggests a system-tool installer instead of making you write
+  one (D64). It ships a table of the common package managers — apt/dnf/yum/
+  zypper/pacman/apk/xbps, pkg, Homebrew/MacPorts, winget/Chocolatey/Scoop —
+  detects which one is on your PATH, and the first time an install needs a
+  missing tool it shows the exact command and asks. Accepting saves it to
+  `config.toml`, so it asks once per machine. Nothing is asked at setup time,
+  a non-interactive run (`-y`/`--force`) never prompts and never saves, and a
+  suggestion only becomes a command once you have accepted it. `scripticus
+  config tools` shows the suggestion for your machine.
+- `scripticus init` is no longer a step you have to remember: `install` runs the
+  same bootstrap itself (D63), creating `~/.scripticus`, putting its `bin`
+  directory on your PATH, and saying so. Setting a machine up is now `pipx
+  install scripticus` followed by one `scripticus login <name> <url>`, which
+  registers the remote as well as storing the token. `init` still exists for
+  doing the PATH change up front.
 
 ## common 0.2.0 — 2026-07-28
 

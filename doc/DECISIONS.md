@@ -1198,7 +1198,12 @@ prefix, `[tools] escalate` (e.g. `"sudo"`, `"doas"`, or empty when already
 root / on Windows-as-admin), prepended to the tool command alone. With no
 `[tools] install` configured, Scripticus never invokes a package manager —
 missing *required* tools abort the install listing them (with a
-`--skip-tools` escape), missing *optional* tools are only reported. The
+`--skip-tools` escape), missing *optional* tools are only reported.
+(**Softened by [D64](#d64-a-suggestion-table-of-package-managers-offered-lazily-at-the-moment-of-need)**:
+Scripticus ships suggestions for the common package managers and offers the
+detected one at the moment an install first needs it. It stays operator-
+configured — a suggestion runs only once an explicit answer has written it to
+`config.toml`.) The
 tool command runs **before any package file or shim is written**, so a
 tool failure aborts the install before package mutation begins — the v1
 guarantee behind "check tools before installing packages" (a non-mutating
@@ -2181,3 +2186,58 @@ new user has no way to know they skipped.
   fixture fakes `HOME`/`USERPROFILE`. The Windows registry branch has no fake
   to point at and is stubbed there instead — no worse covered than before, but
   now load-bearing for keeping tests off the runner's own PATH.
+
+---
+
+## D64. A suggestion table of package managers, offered lazily at the moment of need
+
+**Decision**: Ship a per-platform table of the common system package managers
+(`tools.py`'s `_MANAGERS` — APT/DNF/YUM/Zypper/Pacman/APK/XBPS, pkg, Homebrew
+and MacPorts, winget/Chocolatey/Scoop) with the non-interactive install command
+each wants, and detect the machine's by probing `PATH` in the table's order,
+first match winning. Nothing is asked at setup time. When an `install` or
+`update` first hits a missing required tool with no `[tools] install`
+configured, the pre-flight offers the detected command — printed in full,
+already substituted with the tools it would install — and an accepted offer is
+*saved* to `config.toml`, so the question is asked once per machine rather than
+once per install. Declining, or having no manager detected, keeps D44's
+refusal, now with the `config tools` line named for copy-pasting. A
+non-interactive run (`-y`/`--force`) never prompts and never saves. `config
+tools` with nothing set prints the same suggestion.
+
+The escalation prefix is computed for the machine rather than tabulated
+(`escalation()`): none when already root, otherwise `sudo`, else `doas`, else
+none. Homebrew is flagged to never escalate — it refuses to run under sudo.
+
+**Reason**: D44 offloads package-manager knowledge for good reasons that all
+concern *what runs*: the override is the whole feature, and an enterprise's
+proxies and mirrors make any built-in default wrong. None of that argues the
+user should have to compose `apt-get install -y {packages}` from scratch, which
+is the part they actually get stuck on. A suggestion is inert — it becomes a
+command only by being written to config, by an explicit answer to a prompt that
+displays it — so "operator-configured" survives intact while the blank-page
+problem goes away. Asking lazily rather than at setup follows from the same
+logic that made `init` implicit (D63): a question the user cannot yet evaluate
+is worse than no question, and most closures need no system tools at all, so
+for most users the question never arrives.
+
+**Consequences**:
+- Good: the common case is one `y` at the only moment the choice is meaningful,
+  and setup gains no step.
+- Good: the table is only ever read to produce text; deleting it would change
+  no behaviour except the wording of a message.
+- Good: one pre-flight helper now serves `install` and `update`, which had
+  duplicated the refusal.
+- Neutral: `install` can now write `config.toml`, which it previously only
+  read. It is confined to the `[tools]` table and only on an explicit yes.
+- Bad: the table is a maintenance surface after all — flags and names drift
+  (dnf5, winget's evolving arguments), and a stale entry produces a *suggested*
+  broken command, which reads as Scripticus's fault rather than the machine's.
+  Bounded by being suggestion-only and overridable, but real.
+- Bad: detection is PATH presence, so a machine with a package manager it does
+  not actually use (Homebrew on a Linux box, kept out by platform scoping; two
+  Linux managers side by side, not) can be offered the wrong one. The command
+  is shown before it is agreed to, which is the mitigation.
+- Bad: `winget install` takes multiple packages, but its per-package UAC
+  prompts make a multi-tool install a sequence of dialogs; the suggestion says
+  so rather than pretending otherwise.

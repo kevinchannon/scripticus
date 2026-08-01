@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+import scripticus.cli as cli
 import scripticus.init as init
 import scripticus.remote_install as remote_install
 from scripticus.pack import pack_package
@@ -20,6 +21,18 @@ from scripticus.scaffold import scaffold_package
 from scripticus_common.treehash import tree_hash
 
 REG_URL = "https://reg.example.com"
+
+
+@pytest.fixture(autouse=True)
+def no_detected_package_manager(monkeypatch):
+    """Detection reads the real PATH (D64), so leave it off unless asked.
+
+    Otherwise the tool-installer prompts and messages would differ between a
+    developer's Mac (Homebrew), a CI container (APT), and a bare runner. Tests
+    that exercise detection set `scripticus.cli.detect_package_manager`
+    themselves, or call the real one in `scripticus.tools` directly.
+    """
+    monkeypatch.setattr(cli, "detect_package_manager", lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)

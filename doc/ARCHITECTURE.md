@@ -529,9 +529,20 @@ escalate = "sudo"                            # machine-set; how to elevate
   synthesised from an opaque, possibly non-interactive command, so
   tools-first ordering is the guarantee (an optional `[tools] check`
   dry-run is the post-v1 route to a true pre-flight).
-- **No installer configured** → Scripticus never invokes a package
-  manager: missing *required* tools abort the install listing them (with a
-  `--skip-tools` escape), missing *optional* tools are only reported.
+- **No installer configured** → Scripticus never invokes a package manager
+  it was not told to. The pre-flight (shared by `install` and `update`) probes
+  `PATH` for a known package manager from the per-platform suggestion table
+  (D64) and, interactively, offers its command already substituted with the
+  tools in question; an accepted offer is saved to `config.toml`, so a machine
+  is asked once. Declined, undetected, or non-interactive (`-y`/`--force`),
+  the D44 refusal stands: missing *required* tools abort the install listing
+  them (with a `--skip-tools` escape) and naming the `config tools` line that
+  would fix it; missing *optional* tools are only reported. The table is read
+  only to produce text — a suggestion becomes a command solely by being
+  written to config.
+  The escalation prefix is derived per machine rather than tabulated: none
+  when already root, else `sudo`, else `doas`; Homebrew is never escalated,
+  since it refuses to run under sudo.
 - Tool names originate in third-party manifests, so they are validated to
   a safe charset (`[A-Za-z0-9][A-Za-z0-9._+-]*`) at manifest parse and
   shell-quoted at invocation: a manifest cannot inject shell.

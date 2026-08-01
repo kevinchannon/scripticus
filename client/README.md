@@ -38,13 +38,10 @@ Remotes are searched in the order you add them, which is also the search path
 for bare package names — so add them the way your organisation expects them to
 resolve. `config remote list` shows the current set.
 
-If your packages need system tools installed, your org will also give you a
-`[tools]` line — this one is deliberately local-only, never fetched, since it
-runs a package manager with elevation:
-
-```console
-$ scripticus config tools --install="apt-get install -y {packages}" --escalate=sudo
-```
+There is nothing to configure for system tools. The first time a package needs
+one that your machine is missing, Scripticus looks for a package manager on
+your PATH, shows you the exact command it would run, and asks — once, then
+remembers your answer. See [System tools](#system-tools).
 
 ## Everyday usage
 
@@ -145,11 +142,9 @@ Non-interactive use:
 
 Required system tools missing from your `PATH` are installed *before* any
 package file or shim is written, by running the command your machine's
-`[tools]` configuration provides (see [Configuration](#configuration)). If a
-required tool is missing and no installer is configured, the install aborts
-listing the tools — install them yourself, configure `[tools] install`, or
-re-run with `--skip-tools`. Optional tools are only reported, never
-installed.
+`[tools]` configuration provides — see [System tools](#system-tools) for how
+that gets set, which is a question rather than a setup step. Optional tools are
+only reported, never installed.
 
 Install from a local archive (no registry involved):
 
@@ -159,6 +154,57 @@ $ scripticus install -f ./some-local-pkg-0.0.1.tar.gz
 
 Locally-installed packages are tracked with local provenance; `update` will
 skip them with a warning rather than trying to resolve them against a remote.
+
+### System tools
+
+Some packages need a system tool (`jq`, `curl`, …) that isn't a script and
+can't be shipped as a package. Scripticus encodes no package-manager logic — it
+runs a command you provide. But it doesn't make you write that command from
+scratch, and it doesn't ask at setup time: most packages need no system tools at
+all, so the question only arrives if and when it matters.
+
+The first time an install needs a tool your machine is missing, Scripticus looks
+for a package manager on your `PATH` and offers its command:
+
+```text
+Missing required system tools: jq
+No tool installer is configured, but APT is on your PATH:
+
+  sudo apt-get install -y jq
+
+Save this as your tool installer and use it? [y/N]:
+```
+
+Answer yes and it's written to `config.toml`, so you're never asked again.
+Answer no and nothing is installed — the message tells you the `config tools`
+line that would have been set, so you can adjust it (a proxy, a mirror, an
+internal repo) and set it yourself.
+
+The managers Scripticus knows about, in the order it prefers them:
+
+| Platform | Looked for, in order |
+| --- | --- |
+| Linux | `apt-get`, `dnf`, `yum`, `zypper`, `pacman`, `apk`, `xbps-install` |
+| macOS | `brew`, `port` |
+| Windows | `winget`, `choco`, `scoop` |
+| FreeBSD | `pkg` |
+
+Elevation is worked out for your machine rather than assumed: nothing when
+you're already root, otherwise `sudo`, falling back to `doas`. Homebrew is never
+elevated — it refuses to run under `sudo`.
+
+Two things it deliberately won't do. It never prompts non-interactively
+(`-y`/`--force`): a CI run fails with the suggested command named, rather than
+stopping on a question or quietly acquiring a `sudo` command. And a suggestion
+is only ever text until you accept it — nothing from this table runs unless it's
+in your `config.toml`.
+
+`scripticus config tools` shows what's configured, and the suggestion for this
+machine if nothing is:
+
+```console
+$ scripticus config tools --install="apt-get install -y {packages}" --escalate=sudo
+```
 
 ### Updating and uninstalling
 
@@ -684,10 +730,12 @@ Client configuration lives in `~/.scripticus/`:
 
   `escalate` is prepended to the tool command alone — Scripticus itself never
   needs privilege (its state is entirely under `~/.scripticus`). Leave it out
-  when already root or on Windows-as-admin. With no `[tools] install`
-  configured, Scripticus never invokes a package manager: missing required
-  tools abort the install (with the `--skip-tools` escape). Tool
-  *satisfiability* in v1 is PATH presence only.
+  when already root or on Windows-as-admin. You rarely write this table by
+  hand: see [System tools](#system-tools) for the prompt that offers to fill it
+  in. With no `[tools] install` configured and no offer accepted, Scripticus
+  never invokes a package manager: missing required tools abort the install
+  (with the `--skip-tools` escape). Tool *satisfiability* in v1 is PATH
+  presence only.
 
 - `credentials.toml` — one Gitea access token per remote, keyed by URL and
   registered with `scripticus login`. Kept separate from `config.toml` so

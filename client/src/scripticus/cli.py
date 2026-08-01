@@ -54,7 +54,13 @@ from scripticus.update import (
     required_tool_names,
     select_targets,
 )
-from scripticus.tools import ToolError, install_missing_required
+from scripticus.tools import (
+    ToolError,
+    detect_package_manager,
+    install_command,
+    install_missing_required,
+    suggested_tools,
+)
 from scripticus.whoami import WhoAmIError, verify_token
 from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
@@ -560,16 +566,13 @@ def _install_remote(
         console.print(f"{root} {plan.root_version} is already installed — nothing to do")
         return
 
-    # Pre-flight refusal (D44): required tools missing and no installer means
-    # the install cannot complete — fail before the prompt, not after.
+    # Pre-flight (D44): required tools missing and no installer means the
+    # install cannot complete — settle it before the prompt, not after. D64
+    # makes that an offer where a package manager is detected, a refusal
+    # otherwise; both are resolved here so nothing downstream sees an
+    # unconfigured installer.
     if not skip_tools and plan.missing_required and tools_config.install is None:
-        listed = ", ".join(plan.missing_required)
-        console.print(
-            f"[red]error:[/red] missing required system tools: {listed}"
-            " — configure [tools] install in config.toml, install them"
-            " yourself, or re-run with --skip-tools"
-        )
-        raise typer.Exit(code=1)
+        tools_config = _require_tool_installer(plan.missing_required, home, mode)
 
     _print_remote_transaction(plan, skip_tools, tools_config)
 
@@ -613,6 +616,64 @@ def _install_remote(
             console.print(f"  {conflict.shim}  (was {conflict.owner})")
     for note in notes:
         console.print(note)
+
+
+def _config_tools_hint(tools: Tools) -> str:
+    """The `config tools` line that would set ``tools``, for copy-pasting."""
+    line = f'scripticus config tools --install="{tools.install}"'
+    return f"{line} --escalate={tools.escalate}" if tools.escalate else line
+
+
+def _require_tool_installer(missing: list[str], home: Path, mode: Optional[str]) -> Tools:
+    """Get a usable ``[tools]`` config, asking now if there isn't one (D64).
+
+    Called only when required tools are missing and nothing is configured — the
+    moment the question actually matters, which is why setup never asks it. An
+    accepted suggestion is *saved*, so the question is asked once per machine
+    rather than once per install.
+
+    Never prompts non-interactively (``-y``/``--force``): a CI run must not
+    stop on a question, and must not acquire a privileged command by default.
+    Both paths exit; the caller need not handle a refusal.
+    """
+    listed = ", ".join(missing)
+    manager = detect_package_manager()
+    suggestion = suggested_tools(manager) if manager else None
+
+    if suggestion is None or mode is not None:
+        fix = (
+            f"configure it with: {_config_tools_hint(suggestion)}"
+            if suggestion
+            else "configure [tools] install in config.toml"
+        )
+        console.print(
+            f"[red]error:[/red] missing required system tools: {listed}"
+            f" — {escape(fix)}, install them yourself, or re-run with --skip-tools"
+        )
+        raise typer.Exit(code=1)
+
+    command = install_command(suggestion.install, suggestion.escalate, missing)
+    console.print(f"Missing required system tools: [bold]{listed}[/bold]")
+    console.print(
+        f"No tool installer is configured, but {manager.name} is on your PATH:"
+    )
+    console.print(f"\n  {escape(command)}\n")
+    if manager.note:
+        console.print(f"[dim]{manager.note}[/dim]")
+
+    if not typer.confirm("Save this as your tool installer and use it?"):
+        console.print(
+            "Aborted — nothing installed. Install the tools yourself, set your own"
+            f" installer ({_config_tools_hint(suggestion)}), or re-run with"
+            " --skip-tools."
+        )
+        raise typer.Exit(code=1)
+
+    # "" clears rather than leaves unchanged, which is what a manager wanting no
+    # elevation (Homebrew) means — and there is nothing to preserve anyway.
+    saved = save_tools(home, suggestion.install, suggestion.escalate or "")
+    console.print("Saved to \\[tools]; future installs will not ask.\n")
+    return saved
 
 
 def _print_held_back(plans: "list[tuple]") -> None:
@@ -710,17 +771,15 @@ def update(
         _print_held_back(plans)
         return
 
-    # Pre-flight refusal (D44): a required tool missing with no installer means
-    # the update cannot complete — fail before the prompt, not after.
-    for _, plan, _ in plans:
-        if not skip_tools and plan.missing_required and tools_config.install is None:
-            listed = ", ".join(plan.missing_required)
-            console.print(
-                f"[red]error:[/red] missing required system tools: {listed}"
-                " — configure [tools] install in config.toml, install them"
-                " yourself, or re-run with --skip-tools"
-            )
-            raise typer.Exit(code=1)
+    # Pre-flight (D44/D64): a required tool missing with no installer means the
+    # update cannot complete — settle it before the prompt, not after. Asked
+    # once for the union across plans, not once per remote.
+    if not skip_tools and tools_config.install is None:
+        missing = list(
+            dict.fromkeys(name for _, plan, _ in plans for name in plan.missing_required)
+        )
+        if missing:
+            tools_config = _require_tool_installer(missing, home, mode)
 
     for _, plan, _ in plans:
         _print_remote_transaction(plan, skip_tools, tools_config)
@@ -1309,6 +1368,19 @@ def _print_tools(tools: Tools) -> None:
     for label, value in (("install", tools.install), ("escalate", tools.escalate)):
         shown = escape(value) if value else "[dim](not set)[/dim]"
         console.print(f"  {label + ':':10}{shown}")
+    if tools.install is not None:
+        return
+    # Nothing configured: show what this machine would be offered (D64). Only a
+    # suggestion — `install` asks before using it, and never in CI.
+    manager = detect_package_manager()
+    if manager is None:
+        return
+    suggestion = suggested_tools(manager)
+    console.print(
+        f"\n{manager.name} is on your PATH. `install` will offer to use it when"
+        " a package first needs a system tool, or set it now with:"
+    )
+    console.print(f"  {escape(_config_tools_hint(suggestion))}")
 
 
 @remote_app.command("add")

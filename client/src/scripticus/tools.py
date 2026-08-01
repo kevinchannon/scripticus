@@ -20,19 +20,118 @@ by the caller and never installed.
 Tool names are validated to a safe charset at manifest parse
 (``TOOL_NAME_RE``, D44) and shell-quoted here at invocation, so a manifest
 cannot inject shell.
+
+Scripticus ships a table of *suggestions* for the common package managers
+(D64) and detects which one this machine has, so the config above can be
+offered at the moment an install first needs it rather than demanded at setup
+time. The table is inert: nothing in it runs until it has been written to
+``config.toml`` by an explicit answer, so the "operator-configured" property
+D44 rests on is unchanged.
 """
 
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from scripticus.config import Tools
 
 
 class ToolError(Exception):
     """A required system tool is missing and could not be installed."""
+
+
+@dataclass(frozen=True)
+class PackageManager:
+    """A suggested ``[tools]`` pair for one system package manager (D64)."""
+
+    name: str
+    program: str
+    install: str
+    escalate_by_default: bool = True
+    note: str | None = None
+
+
+# Ordered per platform, first one found on PATH wins. The commands are the
+# non-interactive scripting forms: an install that stops to ask a question
+# would hang inside `install`, which runs it with inherited stdio.
+_MANAGERS: dict[str, tuple[PackageManager, ...]] = {
+    "darwin": (
+        # Homebrew refuses to run under sudo, by design — never escalate it.
+        PackageManager("Homebrew", "brew", "brew install {packages}", False),
+        PackageManager("MacPorts", "port", "port install {packages}"),
+    ),
+    "win32": (
+        PackageManager(
+            "winget",
+            "winget",
+            "winget install --silent --accept-package-agreements"
+            " --accept-source-agreements {packages}",
+            False,
+            note="winget elevates per package with a UAC prompt.",
+        ),
+        PackageManager(
+            "Chocolatey",
+            "choco",
+            "choco install -y {packages}",
+            False,
+            note="Chocolatey needs an elevated prompt; run scripticus from one.",
+        ),
+        PackageManager("Scoop", "scoop", "scoop install {packages}", False),
+    ),
+    "linux": (
+        PackageManager("APT", "apt-get", "apt-get install -y {packages}"),
+        PackageManager("DNF", "dnf", "dnf install -y {packages}"),
+        PackageManager("YUM", "yum", "yum install -y {packages}"),
+        PackageManager("Zypper", "zypper", "zypper --non-interactive install {packages}"),
+        PackageManager("Pacman", "pacman", "pacman -S --noconfirm {packages}"),
+        PackageManager("APK", "apk", "apk add {packages}"),
+        PackageManager("XBPS", "xbps-install", "xbps-install -y {packages}"),
+    ),
+    "freebsd": (PackageManager("pkg", "pkg", "pkg install -y {packages}"),),
+}
+
+
+def _platform_key(platform: str = sys.platform) -> str:
+    if platform.startswith("linux"):
+        return "linux"
+    if platform.startswith("freebsd"):
+        return "freebsd"
+    if platform in ("win32", "cygwin"):
+        return "win32"
+    return platform
+
+
+def escalation() -> str | None:
+    """The elevation prefix this machine can actually use, or None.
+
+    Already-root (a container, the common Alpine case) needs no prefix, and a
+    machine with `doas` but no `sudo` would otherwise get a suggestion it
+    cannot run.
+    """
+    if os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() == 0:
+        return None
+    for candidate in ("sudo", "doas"):
+        if shutil.which(candidate):
+            return candidate
+    return None
+
+
+def detect_package_manager(platform: str = sys.platform) -> PackageManager | None:
+    """The first known package manager on this machine's PATH, if any (D64)."""
+    for manager in _MANAGERS.get(_platform_key(platform), ()):
+        if shutil.which(manager.program):
+            return manager
+    return None
+
+
+def suggested_tools(manager: PackageManager) -> Tools:
+    """The ``[tools]`` pair to offer for ``manager`` on this machine."""
+    escalate = escalation() if manager.escalate_by_default else None
+    return Tools(install=manager.install, escalate=escalate)
 
 
 def missing_on_path(names: Iterable[str]) -> list[str]:

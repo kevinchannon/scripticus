@@ -13,10 +13,11 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+import scripticus.cli as cli
 import scripticus.remote_install as remote_install
 import scripticus.tools as tools_module
 from scripticus.cli import app
-from scripticus.config import Remote, save_remotes
+from scripticus.config import Remote, Tools, load_remotes, load_tools, save_remotes, save_tools
 from scripticus.credentials import set_token
 from scripticus.init import path_line, profile_path
 from scripticus.pack import pack_package
@@ -28,6 +29,7 @@ from scripticus.remote_install import (
     resolve_root,
 )
 from scripticus.scaffold import scaffold_package
+from scripticus.tools import PackageManager
 from scripticus_schema.resolve_api import ResolveRequest
 from scripticus_common.treehash import tree_hash
 
@@ -580,3 +582,119 @@ def test_remote_install_says_nothing_when_the_bin_dir_is_already_on_path(
     assert result.exit_code == 0, result.output
     assert "restartyourshell" not in "".join(result.output.split())
     assert not profile_path().exists()
+
+
+# --- Lazy tool-installer offer (D64) ---------------------------------------
+#
+# Nothing is asked at setup time; the question arrives the first time a package
+# actually needs a system tool, and an accepted answer is saved so it is asked
+# once per machine.
+
+APT = PackageManager("APT", "apt-get", "apt-get install -y {packages}")
+
+
+def _detects(monkeypatch, manager):
+    monkeypatch.setattr(cli, "detect_package_manager", lambda *a, **k: manager)
+    monkeypatch.setattr(cli, "suggested_tools", lambda m: Tools(m.install, "sudo"))
+
+
+def _needs_jq(home, tmp_path, monkeypatch):
+    """A remote install of acme/my-tool that requires the missing tool `jq`."""
+    archive, chash, pointer = make_package(tmp_path, "my-tool")
+    save_remotes(home, [Remote("origin", URL)])
+    set_token(home, URL, "tok")
+    _only_missing(monkeypatch, {"jq"})
+
+    def resolve_handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "packages": [resolved_pkg("acme", "my-tool", "0.1.0", chash, pointer)],
+                "tools": [{"name": "jq", "required": True}],
+            },
+        )
+
+    return fake_server(monkeypatch, resolve_handler, {pointer: archive.read_bytes()})
+
+
+def test_offers_the_detected_installer_and_saves_it_when_accepted(
+    home, tmp_path, monkeypatch
+):
+    _needs_jq(home, tmp_path, monkeypatch)
+    _detects(monkeypatch, APT)
+    ran = {}
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, *a, **k: ran.update(argv=argv) or subprocess.CompletedProcess(argv, 0),
+    )
+
+    # "y" to the installer offer, "y" to the transaction.
+    result = runner.invoke(app, ["install", "acme/my-tool"], input="y\ny\n")
+    assert result.exit_code == 0, result.output
+
+    # The exact command was shown before it was agreed to.
+    assert "sudo apt-get install -y jq" in "".join(result.output.split("\n"))
+    shell = ["cmd", "/c"] if os.name == "nt" else ["bash", "-lc"]
+    assert ran["argv"] == [*shell, "sudo apt-get install -y jq"]
+    assert (home / "pkgs" / "acme" / "my-tool" / "0.1.0").is_dir()
+
+    # Saved, so the next install does not ask again...
+    assert load_tools(home) == Tools("apt-get install -y {packages}", "sudo")
+    # ...and saving it did not eat the remotes list.
+    assert load_remotes(home) == [Remote("origin", URL)]
+
+
+def test_declining_the_offer_installs_nothing(home, tmp_path, monkeypatch):
+    requests = _needs_jq(home, tmp_path, monkeypatch)
+    _detects(monkeypatch, APT)
+
+    result = runner.invoke(app, ["install", "acme/my-tool"], input="n\n")
+    assert result.exit_code == 1
+    assert not (home / "pkgs").exists()
+    assert not any(r.url.path.endswith(".tar.gz") for r in requests)  # never downloaded
+    # A refusal must not leave the privileged command behind.
+    assert load_tools(home) == Tools(None, None)
+    # The declined suggestion is still spelled out as a copy-pasteable fix.
+    assert "config tools" in result.output
+
+
+def test_non_interactive_never_prompts_but_names_the_fix(home, tmp_path, monkeypatch):
+    """CI must not stop on a question, nor silently acquire a sudo command."""
+    _needs_jq(home, tmp_path, monkeypatch)
+    _detects(monkeypatch, APT)
+
+    result = runner.invoke(app, ["install", "acme/my-tool", "-y"])
+    assert result.exit_code == 1
+    assert "missing required system tools: jq" in result.output
+    assert "Save this" not in result.output
+    assert "--skip-tools" in result.output
+    assert load_tools(home) == Tools(None, None)
+    squashed = "".join(result.output.split())
+    assert 'configtools--install="apt-getinstall-y{packages}"--escalate=sudo' in squashed
+
+
+def test_no_detected_manager_keeps_the_plain_refusal(home, tmp_path, monkeypatch):
+    _needs_jq(home, tmp_path, monkeypatch)  # detection stubbed off by conftest
+
+    result = runner.invoke(app, ["install", "acme/my-tool"])
+    assert result.exit_code == 1
+    assert "missing required system tools: jq" in result.output
+    assert "configure [tools] install in config.toml" in result.output
+
+
+def test_a_configured_installer_is_never_second_guessed(home, tmp_path, monkeypatch):
+    _needs_jq(home, tmp_path, monkeypatch)
+    _detects(monkeypatch, APT)
+    save_tools(home, "my-installer {packages}", "")
+    ran = {}
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, *a, **k: ran.update(argv=argv) or subprocess.CompletedProcess(argv, 0),
+    )
+
+    result = runner.invoke(app, ["install", "acme/my-tool", "-y"])
+    assert result.exit_code == 0, result.output
+    assert ran["argv"][-1] == "my-installer jq"
+    assert "apt-get" not in result.output

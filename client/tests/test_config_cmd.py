@@ -3,8 +3,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+import scripticus.cli as cli
 from scripticus.cli import app
 from scripticus.config import Remote, Tools, load_remotes, load_tools, save_remotes
+from scripticus.tools import PackageManager
 
 runner = CliRunner()
 
@@ -167,3 +169,32 @@ def test_tools_set_preserves_remotes(home):
     save_remotes(home, [Remote(name="origin", url="https://a.example.com")])
     runner.invoke(app, ["config", "tools", "--install", "brew install {packages}"])
     assert load_remotes(home) == [Remote(name="origin", url="https://a.example.com")]
+
+
+# --- Suggested installer (D64) ---------------------------------------------
+
+
+def test_tools_show_suggests_the_detected_manager_when_unset(home, monkeypatch):
+    monkeypatch.setattr(
+        cli, "detect_package_manager", lambda *a, **k: PackageManager("APT", "apt-get", "apt-get install -y {packages}")
+    )
+    monkeypatch.setattr(cli, "suggested_tools", lambda m: Tools(m.install, "sudo"))
+
+    result = runner.invoke(app, ["config", "tools"])
+    assert result.exit_code == 0, result.output
+    assert "(not set)" in result.output
+    assert "APT is on your PATH" in result.output
+    squashed = "".join(result.output.split())
+    assert 'configtools--install="apt-getinstall-y{packages}"--escalate=sudo' in squashed
+    # A suggestion is not a setting: showing it must not write anything.
+    assert load_tools(home) == Tools(None, None)
+
+
+def test_tools_show_suggests_nothing_once_configured(home, monkeypatch):
+    monkeypatch.setattr(
+        cli, "detect_package_manager", lambda *a, **k: PackageManager("APT", "apt-get", "apt-get install -y {packages}")
+    )
+    runner.invoke(app, ["config", "tools", "--install", "my-installer {packages}"])
+
+    result = runner.invoke(app, ["config", "tools"])
+    assert "on your PATH" not in result.output

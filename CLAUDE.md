@@ -142,7 +142,12 @@ the repo. System-tool installation shells out to an operator-configured
 command (`tools.py`, D44 — the `[tools] install`/`escalate` config, PATH
 presence check, `{packages}` substitution, platform-shell run; refuses when
 a required tool is missing and no installer is configured, with a
-`--skip-tools` escape). With `search`, `yank`, and the `config` command group
+`--skip-tools` escape) — softened by **D64**, which adds an inert per-platform
+suggestion table (`_MANAGERS`) plus `detect_package_manager`/`escalation`, and
+a shared `install`/`update` pre-flight that *offers* the detected command at
+the moment a tool is first needed, saving an accepted answer; nothing is asked
+at setup, `-y`/`--force` never prompts, and a suggestion runs only once written
+to config. With `search`, `yank`, and the `config` command group
 (D56) in, every planned v1 client command plus the one post-v1 config command
 is implemented — the client surface is complete. **Snippets (D58) have since
 landed**, the second post-v1 feature and the first new *package kind*: a
