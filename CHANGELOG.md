@@ -23,6 +23,11 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+- The shell-script specs (`get-scripticus-svr`) moved out of the e2e suite into
+  `tests/scripts/`, with their own `tt script-test` task and a runner that
+  mounts no Docker socket — they stub `docker` and `curl` and need neither the
+  registry nor the client. Still containerised, so BATS remains something the
+  runner image provides. `tt e2e-test` is now 16 workflow tests rather than 44.
 - The e2e suite now covers publishing to an **organisation** namespace: a team
   with only `Packages: Write` (no owner rights, no repositories) can publish,
   and a token missing `read:organization` is refused with nothing left behind.

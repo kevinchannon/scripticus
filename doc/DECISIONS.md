@@ -1718,6 +1718,15 @@ Building from source proves `server/Dockerfile` still builds, and the overlay
 (not an edit to the shipped file) preserves the README's source-free,
 one-command standup for real operators; `!reset` host ports keep it hermetic.
 
+**Scope**: the e2e suite covers *user workflows* — the paths a person actually
+walks, plus behaviour only a real Gitea can demonstrate (an organisation ACL,
+a token scope). Edge and error cases belong in pytest, which reaches them in
+milliseconds and without a stack; an e2e error test has to justify itself by
+being unreachable there. The shell-script specs are a separate suite on a
+separate runner (`tt script-test`, `tests/scripts/`): they stub `docker` and
+`curl`, need neither stack nor client nor daemon socket, and were only ever in
+the e2e run because that is where BATS happened to live.
+
 **Consequences**:
 - Good: exercises the real client, real server, real Gitea, real Dockerfiles,
   and the real wheel-install path in one run — the widest coverage the project

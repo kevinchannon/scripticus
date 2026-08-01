@@ -68,5 +68,11 @@ jobs:
             docker save "${images[@]}" -o "$tar"
           fi
 
+      # Fast and independent of the stack (docker/curl are stubbed), so run it
+      # first: a shell-script regression fails in seconds rather than after a
+      # full bundle standup.
+      - name: Run the shell-script suite
+        run: tt script-test
+
       - name: Run the e2e suite
         run: tt e2e-test

@@ -25,6 +25,23 @@ runners:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
+  # The shell-script specs need only BATS and a POSIX sh — no daemon socket, no
+  # wheels, no stack. Same image as `e2e` deliberately: it is already built and
+  # cached, a second toolchain would be one more thing to keep in step, and
+  # sharing it keeps /bin/sh identical so the scripts run under the shell the
+  # specs were written against. What differs is what is *not* here — no mounted
+  # socket, so nothing under this runner can reach the host's Docker.
+  #
+  # run_as_root because `get-scripticus-svr` defaults the admin account to
+  # `id -un`, which fails outright when the container inherits a host UID with
+  # no /etc/passwd entry. That is an artefact of the bind mount, not something a
+  # real host does, so the runner sidesteps it rather than the script.
+  scripts:
+    type: containerised
+    engine: docker
+    dockerfile: tests/e2e-tests.dockerfile
+    run_as_root: true
+
 tasks:
   update-uv-deps:
     desc: Sync the workspace virtual environment from the lockfile (uv sync).
@@ -80,6 +97,18 @@ tasks:
       - docker-compose.yml
     cmd: tests/e2e.sh
 
+  script-test:
+    desc: >-
+      Unit tests for the repo's shell scripts (get-scripticus-svr's preflight,
+      refusals, and project-name derivation), with docker and curl stubbed.
+      Containerised so BATS need not be installed locally.
+    runner: scripts
+    inputs:
+      - tests/scripts/*.bats
+      - tests/e2e-tests.dockerfile
+      - get-scripticus-svr
+    cmd: bats --print-output-on-failure tests/scripts
+
   start-server:
     desc: >-
       Stand up a local registry bundle (proxy + index + Gitea) from source, with
@@ -88,7 +117,7 @@ tasks:
 
   test:
     desc: Run all tests
-    deps: [ unit-test, e2e-test ]
+    deps: [ unit-test, script-test, e2e-test ]
     cmd: echo "All tests complete"
 
   versions:

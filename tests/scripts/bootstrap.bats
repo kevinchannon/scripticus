@@ -17,10 +17,13 @@
 # drives for every other spec in this suite, so the bundle itself is covered;
 # what is not is this script's own orchestration of it end to end.
 #
-# Unlike the rest of the suite these need no registry and no SCRIPTICUS_E2E_*.
+# These need no registry, no client, and no SCRIPTICUS_E2E_* — which is why
+# they live here rather than in the e2e suite, and run under their own
+# `tt script-test` task. Still containerised, so BATS stays a thing the runner
+# image provides rather than something every contributor installs.
 
 setup() {
-    SCRIPT="$BATS_TEST_DIRNAME/../get-scripticus-svr"
+    SCRIPT="$BATS_TEST_DIRNAME/../../get-scripticus-svr"
     [ -f "$SCRIPT" ]
 
     WORK="$BATS_TEST_TMPDIR/work"

@@ -55,14 +55,20 @@ CI runs the same `tt e2e-test` ([.github/workflows/e2e.yml](../.github/workflows
 | `docker-compose.build.yml` | Overlay: build `index` from source (shared with `tt start-server`). |
 | `docker-compose.e2e.yml` | Overlay: `!reset` host ports so the e2e stack is fully internal. |
 | `lib/helpers.bash` | Per-test setup (isolated `SCRIPTICUS_HOME`), login, remote-registration, and publish helpers. |
-| `*.bats` | The specs. |
+| `*.bats` | The e2e specs — user workflows against the live stack (`tt e2e-test`). |
+| `scripts/*.bats` | Shell-script specs — no stack, no client (`tt script-test`). |
 
 The bundle stand-up + test-user bootstrap lives in
 [`scripts/start-server`](../scripts/start-server), shared with `tt start-server`.
 The `build`, `unit-test`, and `e2e-test` tasks (and the `e2e` runner) are
 defined in the repo-root [tasktree.yaml](../tasktree.yaml).
 
-## The specs
+## The e2e specs (`tt e2e-test`)
+
+User workflows against the live stack. Edge and error cases belong in the
+pytest suite, which can reach them faster and without a registry; what earns a
+place here is a path a user actually walks, or a behaviour that only real Gitea
+can demonstrate.
 
 - [`lifecycle.bats`](lifecycle.bats) — the full happy path: author → pack →
   login → publish → discover (`list` + `search`) → install → run the installed
@@ -87,10 +93,17 @@ defined in the repo-root [tasktree.yaml](../tasktree.yaml).
   *askable* at all. The negative test pairs with a control: the same
   under-scoped token still publishes fine to its own user namespace, so the
   failure is provably about the organisation lookup rather than a bad token.
-- [`bootstrap.bats`](bootstrap.bats) — the odd one out: it exercises
-  [`get-scripticus-svr`](../get-scripticus-svr) (D61) and needs neither the
-  registry nor the client. It **stubs `docker` and `curl`** rather than driving
-  real ones, because what it tests is the script's decisions — host preflight,
+
+## The shell-script suite (`tt script-test`)
+
+Separate from the e2e suite, and separately runnable: these need no registry, no
+client, and no Docker socket, so they run under their own `scripts` runner with
+nothing mounted. Still containerised — BATS is something the runner image
+provides, not something every contributor has to install.
+
+- [`scripts/bootstrap.bats`](scripts/bootstrap.bats) — it exercises
+  [`get-scripticus-svr`](../get-scripticus-svr) (D61). It **stubs `docker` and
+  `curl`** rather than driving real ones, because what it tests is the script's decisions — host preflight,
   the three refusals, project-name derivation — and those branches are the ones
   a real stack makes slow or impossible to reach (an old compose plugin cannot
   be conjured on demand). The happy path is deliberately not covered here: the

@@ -80,4 +80,6 @@ export SCRIPTICUS_E2E_ORG="$ORG"
 export SCRIPTICUS_E2E_ORG_USER="$ORG_USER"
 export SCRIPTICUS_E2E_ORG_TOKEN="$(cat "$ORG_TOKEN_FILE")"
 export SCRIPTICUS_E2E_ORG_NARROW_TOKEN="$(cat "$ORG_NARROW_TOKEN_FILE")"
-bats --print-output-on-failure --recursive tests
+# Only the top-level specs: tests/scripts/ holds the shell-script unit suite,
+# which needs no stack and runs under `tt script-test`.
+bats --print-output-on-failure tests/*.bats
