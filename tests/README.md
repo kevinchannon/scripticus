@@ -54,7 +54,7 @@ CI runs the same `tt e2e-test` ([.github/workflows/e2e.yml](../.github/workflows
 | `e2e-tests.dockerfile` | The runner toolchain image (docker CLI + compose, BATS, python) — no client baked in. |
 | `docker-compose.build.yml` | Overlay: build `index` from source (shared with `tt start-server`). |
 | `docker-compose.e2e.yml` | Overlay: `!reset` host ports so the e2e stack is fully internal. |
-| `lib/helpers.bash` | Per-test setup (isolated `SCRIPTICUS_HOME`), login and publish helpers. |
+| `lib/helpers.bash` | Per-test setup (isolated `SCRIPTICUS_HOME`), login, remote-registration, and publish helpers. |
 | `*.bats` | The specs. |
 
 The bundle stand-up + test-user bootstrap lives in
@@ -78,6 +78,15 @@ defined in the repo-root [tasktree.yaml](../tasktree.yaml).
   package exposing a shim per command (and the guaranteed `<ns>.<pkg>.<cmd>`
   form), `uninstall` removing a package's shims, and `use` re-pointing a
   contested convenience shim.
+- [`org_publish.bats`](org_publish.bats) — publishing to an **organisation**
+  namespace (D4), which the specs above never touch: they publish under the test
+  user, where `can_publish` short-circuits on `namespace == user` and never asks
+  Gitea anything. Covers the two independent requirements — a team with only
+  `Packages: Write` (no owner rights, no repositories) being enough to publish,
+  and the token needing `read:organization` for the membership check to be
+  *askable* at all. The negative test pairs with a control: the same
+  under-scoped token still publishes fine to its own user namespace, so the
+  failure is provably about the organisation lookup rather than a bad token.
 - [`bootstrap.bats`](bootstrap.bats) — the odd one out: it exercises
   [`get-scripticus-svr`](../get-scripticus-svr) (D61) and needs neither the
   registry nor the client. It **stubs `docker` and `curl`** rather than driving
@@ -93,3 +102,31 @@ These check the README's claims aren't lies; the mechanics themselves are
 covered in depth by the pytest suite. Each test authors a uniquely-named
 package (Gitea persists for the whole run, so identities must not collide
 between tests) and gets a fresh, isolated `SCRIPTICUS_HOME`.
+
+## Isolation, and why the container isn't enough
+
+The whole suite runs inside one container, against one registry stack — so the
+container isolates the *run*, not the tests within it. Two things therefore
+still have to be set per test:
+
+- **`SCRIPTICUS_HOME`** (`common_setup`) — one container means one filesystem,
+  and 40-odd tests sharing `~/.scripticus` would share remotes, credentials,
+  the lockfile, and installed shims. The uninstall spec would reach into the
+  `use` spec. A fresh home per test is what makes each one start from nothing;
+  the cost is that a test needing a remote must register one, which is what
+  `register_remote` is for.
+- **`SCRIPTICUS_TOKEN`** — not a path override but an *identity* selector. The
+  stack holds several Gitea identities (the test user, the organisation
+  publisher, and that publisher under-scoped), and a test that published by
+  logging in would overwrite the credential store it shares with the rest of
+  the test. Setting the token inline picks who is publishing without touching
+  stored state — and is the documented CI path (D34), so the specs exercise a
+  real feature rather than a test-only hook.
+
+What the container *does* remove is machine setup: the client is installed from
+the freshly built wheels into a throwaway venv, and the runner joins the stack
+network, so services are reached by name (`http://proxy`) with no host ports,
+no port-mapping, and nothing to collide with a stack you already have running.
+The environment the specs read (`SCRIPTICUS_E2E_URL`, `SCRIPTICUS_E2E_TOKEN`,
+`SCRIPTICUS_E2E_NAMESPACE`, and the `SCRIPTICUS_E2E_ORG*` set) is exported once
+by `e2e.sh` from what `scripts/start-server` bootstrapped.

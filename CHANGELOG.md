@@ -23,6 +23,12 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+- The e2e suite now covers publishing to an **organisation** namespace: a team
+  with only `Packages: Write` (no owner rights, no repositories) can publish,
+  and a token missing `read:organization` is refused with nothing left behind.
+  Previously every spec published under the test *user*, where the ACL check
+  short-circuits on `namespace == user` and the whole Gitea membership path —
+  including the scope it needs — went unexercised.
 - Documented how to add publishers to a registry: an organisation team with
   only `Packages: Write` (no repositories, not an owner) is enough to publish,
   and each publisher needs a token scoped `organization: Read`, `package: Read

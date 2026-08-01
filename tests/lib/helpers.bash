@@ -10,6 +10,9 @@ common_setup() {
     : "${SCRIPTICUS_E2E_URL:?should be exported by tests/e2e.sh}"
     : "${SCRIPTICUS_E2E_TOKEN:?should be exported by tests/e2e.sh}"
     : "${SCRIPTICUS_E2E_NAMESPACE:?should be exported by tests/e2e.sh}"
+    : "${SCRIPTICUS_E2E_ORG:?should be exported by tests/e2e.sh}"
+    : "${SCRIPTICUS_E2E_ORG_TOKEN:?should be exported by tests/e2e.sh}"
+    : "${SCRIPTICUS_E2E_ORG_NARROW_TOKEN:?should be exported by tests/e2e.sh}"
 
     export SCRIPTICUS_HOME="$BATS_TEST_TMPDIR/home"
     mkdir -p "$SCRIPTICUS_HOME"
@@ -46,6 +49,34 @@ author_and_publish() {
     scripticus pack "$name" -o builds
     SCRIPTICUS_TOKEN="$SCRIPTICUS_E2E_TOKEN" \
         scripticus publish "builds/$name-$version"
+}
+
+# Register the front URL as the 'origin' remote without authenticating — D56's
+# no-token path. `publish` needs a configured remote even when the token comes
+# from SCRIPTICUS_TOKEN: the env var overrides the credential store, not the
+# remotes list.
+register_remote() {
+    scripticus config remote add origin "$SCRIPTICUS_E2E_URL"
+}
+
+# Scaffold + pack a package under the *organisation* namespace, leaving the
+# archives in builds/ for the caller to publish with whichever token it is
+# testing. Separate from author_and_publish because these specs are about the
+# publish step failing or succeeding, not about getting there.
+# Usage: author_org_package <name> <version>
+author_org_package() {
+    local name="$1" version="$2"
+    scripticus new bash "$name" -n "$SCRIPTICUS_E2E_ORG"
+    sed -i "s/^version = .*/version = \"$version\"/" "$name/meta.toml"
+    scripticus pack "$name" -o builds
+}
+
+# Is <namespace>/<name> present in the index? Used to assert that a refused
+# publish left nothing behind — the batch is atomic (D37), so a failure must
+# not be visible to anyone.
+# Usage: run published_versions <namespace> <name>
+published_versions() {
+    scripticus list --available "$1/$2"
 }
 
 # Author + publish a snippet package (D58): one [snippet.<name>] section per

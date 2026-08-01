@@ -28,6 +28,14 @@ NAMESPACE="${SC_NAMESPACE:-scripticus-dev}"          # the test user == a namesp
 PASSWORD="${SC_PASSWORD:-dev-password-1}"
 JOIN_NETWORK="${SC_JOIN_NETWORK:-}"                  # if set, attach the current container (DooD)
 TOKEN_FILE="${SC_TOKEN_FILE:-}"                      # if set, write the token here for the caller
+# The organisation half (D4): a namespace that is *not* the publishing user, so
+# `can_publish` actually consults Gitea instead of short-circuiting on
+# `namespace == user`. Publishing to it needs a token scoped read:organization,
+# which the user-namespace path never exercises.
+ORG="${SC_ORG:-${NAMESPACE}-org}"
+ORG_USER="${SC_ORG_USER:-${NAMESPACE}-publisher}"    # a member, deliberately not an owner
+ORG_TOKEN_FILE="${SC_ORG_TOKEN_FILE:-}"              # correctly-scoped publisher token
+ORG_NARROW_TOKEN_FILE="${SC_ORG_NARROW_TOKEN_FILE:-}"  # same, minus read:organization
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -82,9 +90,61 @@ TOKEN=$(curl -sf -u "$NAMESPACE:$PASSWORD" \
     "$GITEA_URL/api/v1/users/$NAMESPACE/tokens" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha1"])')
 
+# --- The organisation namespace -------------------------------------------
+#
+# Everything here is done with basic auth rather than the token above: creating
+# orgs and teams needs scopes the publish token deliberately lacks, and using
+# the password keeps the token's scope set exactly what a publisher would have.
+
+mint_token() {  # user password scopes_json -> token on stdout
+    curl -sf -u "$1:$2" -X POST -H 'Content-Type: application/json' \
+        -d "{\"name\":\"scripticus-$3-$(date +%s)-$RANDOM\",\"scopes\":$4}" \
+        "$GITEA_URL/api/v1/users/$1/tokens" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha1"])'
+}
+
+info "ensuring organisation '$ORG' exists"
+curl -sf -u "$NAMESPACE:$PASSWORD" -X POST -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$ORG\"}" "$GITEA_URL/api/v1/orgs" >/dev/null 2>&1 \
+    || info "organisation '$ORG' already present"
+
+# A team that can publish and nothing else: no owner rights, no repositories.
+# The packages unit is organisation-level, so an empty repository scope is not
+# a limitation — this is the least privilege that can publish.
+info "ensuring publishing team exists in '$ORG'"
+curl -sf -u "$NAMESPACE:$PASSWORD" -X POST -H 'Content-Type: application/json' \
+    -d '{"name":"publishers","description":"Publish packages, nothing else",
+         "permission":"none","includes_all_repositories":false,
+         "can_create_org_repo":false,"units_map":{"repo.packages":"write"}}' \
+    "$GITEA_URL/api/v1/orgs/$ORG/teams" >/dev/null 2>&1 \
+    || info "team 'publishers' already present"
+TEAM_ID=$(curl -sf -u "$NAMESPACE:$PASSWORD" "$GITEA_URL/api/v1/orgs/$ORG/teams" \
+    | python3 -c 'import json,sys; print(next(t["id"] for t in json.load(sys.stdin) if t["name"]=="publishers"))')
+
+info "ensuring publisher '$ORG_USER' exists and is in the team"
+"${COMPOSE[@]}" exec -T -u git gitea \
+    gitea admin user create \
+    --username "$ORG_USER" --password "$PASSWORD" \
+    --email "$ORG_USER@example.invalid" --must-change-password=false \
+    >/dev/null 2>&1 \
+    || info "user '$ORG_USER' already present"
+curl -sf -u "$NAMESPACE:$PASSWORD" -X PUT \
+    "$GITEA_URL/api/v1/teams/$TEAM_ID/members/$ORG_USER" >/dev/null
+
+# Two tokens for the same user, differing only in read:organization — which is
+# what `can_publish` needs to ask Gitea about org membership at all. The narrow
+# one reproduces the failure that looks like a permissions problem and is not.
+info "minting publisher tokens (scoped, and deliberately under-scoped)"
+ORG_TOKEN=$(mint_token "$ORG_USER" "$PASSWORD" org \
+    '["write:package","read:user","read:organization"]')
+ORG_NARROW_TOKEN=$(mint_token "$ORG_USER" "$PASSWORD" narrow \
+    '["write:package","read:user"]')
+
 wait_for "$FRONT_URL/health"
 
 [[ -n "$TOKEN_FILE" ]] && printf '%s' "$TOKEN" > "$TOKEN_FILE"
+[[ -n "$ORG_TOKEN_FILE" ]] && printf '%s' "$ORG_TOKEN" > "$ORG_TOKEN_FILE"
+[[ -n "$ORG_NARROW_TOKEN_FILE" ]] && printf '%s' "$ORG_NARROW_TOKEN" > "$ORG_NARROW_TOKEN_FILE"
 
 # Human summary (stdout) — the useful bit for `tt start-server`.
 cat <<EOF
@@ -93,6 +153,12 @@ ${BOLD}━━  Registry running  ━━━━━━━━━━━━━━━�
   Namespace:  ${NAMESPACE}
   User/pass:  ${NAMESPACE} / ${PASSWORD}
   Token:      ${TOKEN}
+
+  Organisation namespace (publisher is a member, not an owner):
+    Namespace:      ${ORG}
+    User/pass:      ${ORG_USER} / ${PASSWORD}
+    Token:          ${ORG_TOKEN}
+    Under-scoped:   ${ORG_NARROW_TOKEN}   (no read:organization)
 
   Point the client at it (paste the token when prompted):
     uv run scripticus login origin ${FRONT_URL}
