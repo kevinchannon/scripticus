@@ -30,7 +30,8 @@ Scripticus is two PyPI packages, developed together in this repository:
   [client README](client/README.md) for installation and usage.
 - **[`scripticus-server`](server/README.md)** — the index service
   (`scripticus-svr`), deployed alongside Gitea. See the
-  [server README](server/README.md) for standing up a registry.
+  [server README](server/README.md) for standing up a registry and
+  onboarding the people who publish to it.
 
 The design documents live in [doc/](doc/): [vision](doc/VISION.md),
 [architecture](doc/ARCHITECTURE.md), [roadmap](doc/ROADMAP.md), and the

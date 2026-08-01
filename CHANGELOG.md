@@ -23,8 +23,21 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+- Documented how to add publishers to a registry: an organisation team with
+  only `Packages: Write` (no repositories, not an owner) is enough to publish,
+  and each publisher needs a token scoped `organization: Read`, `package: Read
+  and Write`, `user: Read`. Calls out that a missing `read:organization` scope
+  surfaces as `'<user>' cannot publish to namespace '<ns>'` — which reads as a
+  team-permissions problem and is not one — with the command to tell them
+  apart.
+
 ### client
 
+- Documented the token scopes publishing actually needs. The previous
+  instruction said only "package-write scope", which authenticates fine and
+  then fails at publish: `read:organization` and `read:user` are needed too.
+  Also notes what an install-only token needs, and that scopes cannot be
+  edited after a token is created.
 - `publish` accepts one of the version's archives, not only the
   `<name>-<version>` prefix they share (D65) — so tab-completing the filename
   now works instead of failing with a message that blamed a missing build.

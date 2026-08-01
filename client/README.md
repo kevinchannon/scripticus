@@ -25,6 +25,10 @@ token. Your org's onboarding docs will give you the exact line to run:
 $ scripticus login tools https://scripticus.example.com
 ```
 
+The token you paste needs at least **`user: Read`** (to log in at all) and
+**`package: Read`** (to download archives). Publishing needs more — see
+[Publishing](#publishing).
+
 That's the whole setup. There is no separate initialisation step: the first
 `install` creates `~/.scripticus`, puts its `bin` directory on your PATH, and
 tells you it did — you only need to restart your shell (or re-source your
@@ -602,9 +606,28 @@ archive is the source of truth.
 
 ### Publishing
 
-Publishing authenticates with a Gitea personal access token: create one in
-your Gitea user settings (it needs package-write scope), then log in to a
-remote by name:
+Publishing authenticates with a Gitea personal access token. Create one under
+**Settings → Applications → Generate New Token** in your registry's account
+pages, expand **Select permissions**, and set exactly these three — leaving
+every other category at *No Access*:
+
+| Category | Set to | Why |
+| --- | --- | --- |
+| `organization` | Read | Checking you belong to the namespace you're publishing to |
+| `package` | Read and Write | Uploading the archives |
+| `user` | Read | Identifying who you are |
+
+All three are needed. A token with only `write:package` authenticates fine and
+then fails at publish with *"cannot publish to namespace"* — which reads like a
+permissions problem but is the missing `read:organization`, without which the
+registry cannot check your membership at all. **Token scopes cannot be edited
+after creation**: to add one, generate a new token and revoke the old.
+
+Publishing under your own username needs only `package` and `user`, but there
+is no cost to setting all three, and moving a package into an organisation
+later would otherwise break it.
+
+Then log in to a remote by name:
 
 ```console
 $ scripticus login origin

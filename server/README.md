@@ -68,6 +68,9 @@ user stops the run rather than modifying what is already there. It needs
 Docker, the Compose v2 plugin at v2.23.1 or newer (the bundle carries its proxy
 config inline), and either `curl` or `wget`.
 
+The script sets up the administrator only. To let anyone else publish, see
+[Adding publishers](#adding-publishers).
+
 ### Running the index service directly
 
 Of course, you can also just run the index service on its own — without
@@ -162,6 +165,72 @@ $ curl -X PATCH http://localhost:8000/packages/infra/backup-rotate/1.2.0 \
 Unlike publish, this touches no Gitea blob — it flips one flag on the index
 record. An unknown version is a 404; yank is idempotent and carries no time
 window, so a version can be un-yanked at any time.
+
+## Adding publishers
+
+`get-scripticus-svr` sets up one account: the administrator, who owns the
+publishing organisation. Everyone else you want publishing needs two things,
+and they are independent — getting one without the other produces an error
+that names the wrong cause.
+
+Accounts, organisations, and teams are Gitea's (D2/D4), so all of this happens
+in the account pages the bundle serves at `http://localhost:8000/accounts/`.
+
+### 1. Membership of the publishing organisation
+
+The index service asks Gitea, live, whether the publishing user *is* the
+namespace or belongs to it. Membership of any team in the organisation
+satisfies that check.
+
+You do not have to make people organisation owners to let them publish. A team
+with only the packages permission is enough — and is what you want, since
+Owners can also delete the organisation:
+
+**Organisation → Teams → New Team**
+
+| Setting | Value |
+| --- | --- |
+| Permission | *not* Administrator access |
+| `Packages` unit | **Write** |
+| Every other unit | None |
+| Repositories | none — leave the team with no repositories at all |
+
+The packages permission is organisation-level, not per-repository, so a team
+with zero repositories publishes perfectly well. Add your publishers to that
+team.
+
+A read-only counterpart (`Packages`: **Read**) is worth having too, for people
+who only install. Search, listing, and resolution are anonymous — only the blob
+download is authenticated — so an installer's token needs just `user: Read`
+(the client verifies it at login) and `package: Read`.
+
+### 2. A correctly-scoped token, per publisher
+
+Each publisher generates their own token under **Settings → Applications**,
+with `organization: Read`, `package: Read and Write`, and `user: Read`. The
+[client README](https://github.com/kevinchannon/scripticus/blob/main/client/README.md#publishing)
+covers this from the publisher's side; the part worth knowing as an
+administrator is that **a missing `read:organization` scope looks exactly like
+a permissions problem**. The publish fails with:
+
+```text
+error: publish to 'origin' failed (403): 'writer' cannot publish to namespace 'acme-co'
+```
+
+which sends you to check org membership and team permissions that are, in
+fact, already correct. If a publisher hits that and you have satisfied step 1,
+check the token's scopes before touching anything in the organisation. Gitea
+will tell you plainly:
+
+```console
+$ curl -H "Authorization: token <their-token>" \
+    http://localhost:8000/accounts/api/v1/orgs/<org>/members/<user>
+{"message":"token does not have at least one of required scope(s), required=[read:organization], token scope=write:package,read:user"}
+```
+
+`204 No Content` there means the token can see the membership and step 1 is
+done. Scopes cannot be edited after a token is created, so the fix is always a
+new token plus `scripticus login`.
 
 ## Licence
 
