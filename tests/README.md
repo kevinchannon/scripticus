@@ -70,19 +70,21 @@ pytest suite, which can reach them faster and without a registry; what earns a
 place here is a path a user actually walks, or a behaviour that only real Gitea
 can demonstrate.
 
-- [`lifecycle.bats`](lifecycle.bats) — the full happy path: author → pack →
-  login → publish → discover (`list` + `search`) → install → run the installed
-  command.
-- [`update_yank.bats`](update_yank.bats) — post-install version movement:
-  `update` floating a package to a newer version, and `yank`/`--undo` moving a
-  version out of and back into read-side resolution.
+- [`lifecycle.bats`](lifecycle.bats) — **the arc**: the whole journey in order,
+  on a machine that starts with nothing. login → new → pack → publish →
+  discover → install → run → update → uninstall, as eleven named steps sharing
+  one `SCRIPTICUS_HOME` and one package (`setup_file`), so a failure says which
+  step broke. Uniquely in this suite it does *not* pre-export the bin directory
+  onto PATH: the machine is genuinely bare, `install` performs D63's bootstrap
+  for itself, and each step sources the profile that bootstrap wrote — the
+  stand-in for the shell restart the client asks for. That is the only place
+  the documented first-run experience is tested end to end.
+- [`yank.bats`](yank.bats) — the publisher's retraction: `yank` moving a version
+  out of what the read side serves, and `--undo` putting it back.
 - [`snippets.bats`](snippets.bats) — the snippet lifecycle (D58): author
   multi-language boilerplate → publish → find it by snippet name and language →
   install (no shims) → `snip` on stdout via both the standalone binary and
   `scripticus snip`.
-- [`commands.bats`](commands.bats) — command-shim claims: a multi-command
-  package exposing a shim per command (and the guaranteed `<ns>.<pkg>.<cmd>`
-  form), and `uninstall` removing a package's shims.
 - [`org_publish.bats`](org_publish.bats) — publishing to an **organisation**
   namespace (D4), which the specs above never touch: they publish under the test
   user, where `can_publish` short-circuits on `namespace == user` and never asks
@@ -92,6 +94,11 @@ can demonstrate.
   *askable* at all. The negative test pairs with a control: the same
   under-scoped token still publishes fine to its own user namespace, so the
   failure is provably about the organisation lookup rather than a bad token.
+
+The arc absorbed what `commands.bats` and `update_yank.bats`'s update test
+covered: its package carries two commands, so the per-command shims and the
+`<ns>.<pkg>.<cmd>` form are asserted where they naturally occur, and `update`
+and `uninstall` are steps rather than standalone specs.
 
 Error and edge cases that used to live here — the sh/bash sourcing refusal, the
 orphaned-library advisory, the ambiguous-snippet listing, `use` re-pointing a

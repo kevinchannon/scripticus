@@ -23,6 +23,12 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+- The e2e suite is now organised around user journeys: `lifecycle.bats` runs the
+  whole arc in order — login → new → pack → publish → discover → install → run →
+  update → uninstall — on a machine that starts with nothing, so D63's
+  install-time PATH bootstrap and the documented first-run experience are
+  covered end to end for the first time. Edge and error cases that pytest
+  already covered moved out.
 - The shell-script specs (`get-scripticus-svr`) moved out of the e2e suite into
   `tests/scripts/`, with their own `tt script-test` task and a runner that
   mounts no Docker socket — they stub `docker` and `curl` and need neither the
