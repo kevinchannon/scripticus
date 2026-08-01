@@ -23,6 +23,10 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+### client
+
+## server 0.8.0 — 2026-08-01
+
 - The bundle now publishes a single port (D62). Gitea's web UI moved behind the
   proxy at `/accounts/`, so there is no second port to open, firewall, or
   certificate — set `SCRIPTICUS_PUBLIC_URL` (or `get-scripticus-svr
@@ -53,7 +57,7 @@ Releases before this file exists are recorded only in the git tags and in
   inline `configs` entry in the compose file, so the one-file standup works (D45).
   Needs Docker Compose v2.23.1 or newer.
 
-### client
+## client 0.8.0 — 2026-08-01
 
 - Scripticus now suggests a system-tool installer instead of making you write
   one (D64). It ships a table of the common package managers — apt/dnf/yum/
