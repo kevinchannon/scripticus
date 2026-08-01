@@ -643,8 +643,20 @@ $ scripticus publish my-cool-script-0.1.2
 The argument is a path whose last segment is `<name>-<version>`; everything
 in that directory whose filename matches those fields (D26's tags — dashes
 in the name are matched against the filename's underscore form
-automatically) gets published. That means a package targeting both format
-groups publishes both archives from one command:
+automatically) gets published. **One of the archives works too**, which is
+what tab-completion gives you:
+
+```console
+$ scripticus publish my_cool_script-0.1.2-linux.macos-bash.tar.gz
+```
+
+It means the same thing — the archive's own name and version select the batch,
+so you never have to retype a prefix you can complete. Since that publishes
+every variant of the version and not just the file you named, `publish` says so
+before uploading when there is more than one.
+
+A package targeting both format groups publishes both archives from one
+command, whichever form you use:
 
 ```console
 $ scripticus pack my-cool-script -o builds

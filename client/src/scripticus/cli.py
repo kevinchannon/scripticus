@@ -66,6 +66,7 @@ from scripticus_schema.manifest import ManifestError
 from scripticus.pack import PackError, pack_package
 from scripticus.publish import (
     PublishError,
+    derived_prefix,
     matching_archives,
     publish_archives,
     resolve_remote,
@@ -1168,8 +1169,8 @@ def login(
 def publish(
     path_prefix: Path = typer.Argument(
         ...,
-        help="Path whose last component is the archives' <name>-<version>"
-        " prefix, e.g. builds/my-cool-script-0.1.2.",
+        help="One of the version's archives, or the <name>-<version> prefix"
+        " they share, e.g. builds/my-cool-script-0.1.2.",
     ),
     remote: Optional[str] = typer.Option(
         None,
@@ -1185,6 +1186,14 @@ def publish(
         target = resolve_remote(remote, remotes)
         token = resolve_token(target, home)
         archives = matching_archives(path_prefix)
+        # Naming one archive publishes the whole version (D65). Say so before
+        # uploading: a version is immutable once published, so "I only meant
+        # that one file" is not something the user can walk back afterwards.
+        if derived_prefix(path_prefix) is not None and len(archives) > 1:
+            console.print(
+                f"'{path_prefix.name}' is one of {len(archives)} archives for"
+                f" this version — publishing all of them, as one batch."
+            )
         result = publish_archives(target, token, archives)
     except (ConfigError, CredentialsError, PublishError) as exc:
         console.print(f"[red]error:[/red] {escape(str(exc))}")

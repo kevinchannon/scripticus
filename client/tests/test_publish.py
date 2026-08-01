@@ -9,7 +9,12 @@ from scripticus.cli import app
 from scripticus.config import Remote, save_remotes
 from scripticus.credentials import set_token
 from scripticus.pack import pack_package
-from scripticus.publish import PublishError, matching_archives, resolve_remote
+from scripticus.publish import (
+    PublishError,
+    derived_prefix,
+    matching_archives,
+    resolve_remote,
+)
 from scripticus.scaffold import scaffold_package
 
 runner = CliRunner()
@@ -268,3 +273,109 @@ def test_unreachable_remote_is_a_clean_error(home, tmp_path, monkeypatch):
     )
     assert result.exit_code == 1
     assert "cannot reach 'origin'" in result.output
+
+
+# --- An archive filename stands in for the prefix (D65) --------------------
+
+
+def test_naming_one_archive_selects_the_whole_version(tmp_path):
+    archives = build_archives(tmp_path)
+    assert len(archives) == 2
+
+    # What tab-completion gives you: the full filename of one variant.
+    matched = matching_archives(archives[0])
+    assert sorted(matched) == sorted(archives)
+
+
+def test_naming_an_archive_matches_the_prefix_form_exactly(tmp_path):
+    archives = build_archives(tmp_path)
+    assert matching_archives(archives[0]) == matching_archives(
+        tmp_path / "builds" / "my-cool-script-0.1.0"
+    )
+
+
+def test_an_archive_of_a_different_version_selects_its_own_version(tmp_path):
+    directory = tmp_path / "builds"
+    directory.mkdir()
+    for version in ("0.1.2", "0.1.20"):
+        (directory / f"my_tool-{version}-linux.macos-bash.tar.gz").write_bytes(b"x")
+
+    matched = matching_archives(directory / "my_tool-0.1.2-linux.macos-bash.tar.gz")
+    assert [p.name for p in matched] == ["my_tool-0.1.2-linux.macos-bash.tar.gz"]
+
+
+def test_derived_prefix_is_none_for_a_prefix(tmp_path):
+    assert derived_prefix(Path("builds/my-cool-script-0.1.0")) is None
+    assert derived_prefix(Path("builds/my_tool-0.1.2-linux.macos-bash.tar.gz")) == Path(
+        "builds/my-tool-0.1.2"
+    )
+
+
+def test_a_misshapen_archive_name_does_not_send_you_to_pack(tmp_path):
+    """The old message blamed a missing build for what is a mistyped argument
+    — sending the user to the one step they had already done."""
+    directory = tmp_path / "builds"
+    directory.mkdir()
+    (directory / "my_tool-0.1.2-linux.macos-bash.tar.gz").write_bytes(b"x")
+
+    with pytest.raises(PublishError) as excinfo:
+        matching_archives(directory / "my_tool-0.1.2.tar.gz")  # missing two fields
+
+    message = str(excinfo.value)
+    assert "not a Scripticus archive filename" in message
+    assert "pack" not in message
+
+
+def test_a_genuinely_absent_version_still_suggests_pack(tmp_path):
+    build_archives(tmp_path)
+    with pytest.raises(PublishError, match="run 'scripticus pack' first"):
+        matching_archives(tmp_path / "builds" / "my-cool-script-9.9.9")
+
+
+def test_cli_says_when_one_archive_expanded_to_the_batch(home, tmp_path, monkeypatch):
+    archives = build_archives(tmp_path)
+    save_remotes(home, [Remote(name="origin", url=URL)])
+    set_token(home, URL, "tok")
+    requests = fake_server(monkeypatch, success_response)
+
+    result = runner.invoke(app, ["publish", str(archives[0])])
+    assert result.exit_code == 0, result.output
+
+    # Said before the upload, not inferred from the result list: a published
+    # version is immutable, so "I only meant that one file" cannot be undone.
+    squashed = "".join(result.output.split())
+    assert "isoneof2archivesforthisversion" in squashed
+    assert result.output.index("publishing all of them") < result.output.index("Published")
+    [request] = requests
+    assert request.read().count(b"filename=") == 2
+
+
+def test_cli_stays_quiet_when_given_the_prefix(home, tmp_path, monkeypatch):
+    build_archives(tmp_path)
+    save_remotes(home, [Remote(name="origin", url=URL)])
+    set_token(home, URL, "tok")
+    fake_server(monkeypatch, success_response)
+
+    result = runner.invoke(app, ["publish", str(tmp_path / "builds" / "my-cool-script-0.1.0")])
+    assert result.exit_code == 0, result.output
+    assert "publishing all of them" not in result.output
+
+
+def test_a_single_variant_package_publishes_from_its_filename_quietly(
+    home, tmp_path, monkeypatch
+):
+    """The reported case: one bash archive, named in full. Nothing expanded,
+    so there is nothing to announce."""
+    source = tmp_path / "src" / "clean-repos"
+    scaffold_package("bash", "clean-repos", "acme", source.parent)
+    [archive] = pack_package(source, tmp_path / "builds")
+    assert archive.name.startswith("clean_repos-0.1.0-")
+
+    save_remotes(home, [Remote(name="origin", url=URL)])
+    set_token(home, URL, "tok")
+    requests = fake_server(monkeypatch, success_response)
+
+    result = runner.invoke(app, ["publish", str(archive)])
+    assert result.exit_code == 0, result.output
+    assert "publishing all of them" not in result.output
+    assert requests[0].read().count(b"filename=") == 1

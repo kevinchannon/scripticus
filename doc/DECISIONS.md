@@ -2241,3 +2241,48 @@ for most users the question never arrives.
 - Bad: `winget install` takes multiple packages, but its per-package UAC
   prompts make a multi-tool install a sequence of dialogs; the suggestion says
   so rather than pretending otherwise.
+
+---
+
+## D65. `publish` accepts one of the version's archives, not just their prefix
+
+**Decision**: `publish`'s argument may be either the `<name>-<version>` prefix
+(D36) or any one of the archives that share it. An argument whose last
+component parses as a D26 filename has its name and version fields extracted
+and used as the prefix, selecting exactly the same batch. Because that means
+naming one file publishes every variant of the version, the CLI says so before
+uploading whenever the expansion covers more than one archive. A path that ends
+in an archive extension but does not parse as a D26 filename is now its own
+error naming the expected shape, rather than the generic "no archives matching
+… — run `scripticus pack` first?".
+
+**Reason**: the prefix is not what anyone has to hand. `pack` prints filenames,
+`ls` lists filenames, and tab-completion completes filenames — so the natural
+gesture is to complete the archive and hit enter, which failed with a message
+blaming a missing build for what was a well-formed request in the wrong
+notation. The information is all there: name and version are two of the four
+fields, so an archive identifies its version unambiguously. Rejecting it was
+strictness with nothing behind it.
+
+Expanding to the whole version rather than publishing the single named file is
+forced by D37: a publish is one atomic batch, and a version is immutable once
+committed, so "just this file" is not a state the user could correct
+afterwards. Announcing the expansion before the upload — rather than leaving it
+to be noticed in the result list — is the part that keeps that honest.
+
+**Consequences**:
+- Good: the failing gesture from the bug report now works, and the two
+  notations are exactly interchangeable.
+- Good: the misleading `pack` suggestion is confined to the case it actually
+  describes — a prefix with no archives behind it.
+- Neutral: the argument is no longer purely a prefix, so the help text and docs
+  describe two accepted forms. The parameter keeps its `path_prefix` name
+  internally.
+- Bad: `publish some-archive.tar.gz` uploading three files is a surprise the
+  first time, mitigated only by a printed line. The alternative — publishing
+  the one named file — would be a worse surprise, since the version would
+  commit without its other variants and could not be amended.
+- Bad: an argument that is a real file but a hand-renamed one (`backup.tar.gz`)
+  reports "not a Scripticus archive filename", which is accurate but does not
+  say the file is nonetheless sitting right there. Naming the D26 shape is the
+  compromise.

@@ -25,6 +25,13 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### client
 
+- `publish` accepts one of the version's archives, not only the
+  `<name>-<version>` prefix they share (D65) — so tab-completing the filename
+  now works instead of failing with a message that blamed a missing build.
+  Either form selects the same batch; naming one archive of a multi-variant
+  version says so before uploading. A path that looks like an archive filename
+  but is not one gets an error that says that, rather than suggesting `pack`.
+
 ## server 0.8.0 — 2026-08-01
 
 - The bundle now publishes a single port (D62). Gitea's web UI moved behind the

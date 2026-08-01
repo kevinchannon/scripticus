@@ -198,9 +198,10 @@ every one of them, and only writes any blob to Gitea (and commits any
 index record) once the whole batch has validated — atomic across the
 batch, not just per archive (D37). A failure anywhere in the batch
 rejects the whole request; nothing is uploaded, nothing is committed.
-Client-side, `scripticus publish <path-prefix>` (D36) selects every
+Client-side, `scripticus publish <path>` (D36) selects every
 pre-built archive matching a `<name>-<version>` prefix and sends them
-all in one request; the command reports the whole set published or the
+all in one request; the path may equally be one of those archives, whose own
+name/version fields then select the batch (D65); the command reports the whole set published or the
 whole set rejected, with no partial-success state to reason about. The
 format-variant rule (same content hash, format not yet present) still
 governs a genuinely *separate* publish later — e.g. adding a Windows
