@@ -4,6 +4,14 @@ Each workspace package (`common`, `schema`, `server`, `client`) is released and
 versioned on its own tag, so this file is grouped by **package**, not by a
 single project-wide version.
 
+**Release notes are for users of the published package.** A bullet belongs here
+only if it changes what someone installing `scripticus` or `scripticus-server`
+can see or do — behaviour, CLI surface, wire format, or the README that becomes
+the PyPI page. Test infrastructure, CI, and repo tooling do not go in, however
+substantial: this file becomes the release tag's message and the GitHub release
+body, so anything else is noise on a page people read to decide whether to
+upgrade. The git history is where that work is recorded.
+
 **To record a change**, add a bullet to the `### <package>` block under
 `## Unreleased`. **`tt release` does the rest**: when it releases a package it
 takes that block, uses it as the annotation message of the release tag

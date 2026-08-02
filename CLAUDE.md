@@ -263,7 +263,10 @@ consumer would silently accept an incompatible release.
 
 Release notes live in [CHANGELOG.md](CHANGELOG.md), grouped by package rather
 than by a project-wide version (D59): pending bullets go under `## Unreleased` /
-`### <package>` as the change is made. Releasing a package moves that block into
+`### <package>` as the change is made. **Only user-facing changes go in** —
+behaviour, CLI surface, wire format, or the README that is the PyPI page. Test
+infrastructure, CI, and repo tooling are recorded in the git history and stay
+out, because this file becomes the tag message and the GitHub release body. Releasing a package moves that block into
 a `## <package> <version> — <date>` section and uses it as the body of the
 **annotated** release tag, so `git show <pkg>-vX.Y.Z` explains the release; the
 release workflow then reads that annotation back as the GitHub release body
