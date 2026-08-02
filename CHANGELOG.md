@@ -23,6 +23,10 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
+### client
+
+## server 0.8.1 — 2026-08-02
+
 - Documented how to add publishers to a registry. This release is that
   documentation reaching PyPI, where it is visible — there is no code change.
   An organisation team holding only `Packages: Write` — no repositories, not an
@@ -32,7 +36,7 @@ Releases before this file exists are recorded only in the git tags and in
   '<ns>'`, which reads as a team-permissions problem and is not one; the README
   gives the one command that tells the two apart.
 
-### client
+## client 0.9.0 — 2026-08-02
 
 - Documented the token scopes publishing actually needs. The previous
   instruction said only "package-write scope", which authenticates fine and
