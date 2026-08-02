@@ -23,36 +23,14 @@ Releases before this file exists are recorded only in the git tags and in
 
 ### server
 
-- The e2e suite is now organised around user journeys: `lifecycle.bats` runs the
-  whole arc in order — login → new → pack → publish → discover → install → run →
-  update → uninstall — on a machine that starts with nothing, so D63's
-  install-time PATH bootstrap and the documented first-run experience are
-  covered end to end for the first time. Edge and error cases that pytest
-  already covered moved out.
-- The shell-script test runner no longer needs root. Its image now carries a
-  passwd entry for the host UID Tasktree maps in, built from the
-  `{{ tt.uid }}`/`{{ tt.gid }}` variables added in Tasktree 1.4.0, so `id -un`
-  and `$HOME` resolve inside the container. The e2e runner keeps root because
-  it mounts the Docker socket, whose group differs by platform. Requires
-  Tasktree >= 1.4.0 (CI pin bumped).
-- The shell-script specs (`get-scripticus-svr`) moved out of the e2e suite into
-  `tests/scripts/`, with their own `tt script-test` task and a runner that
-  mounts no Docker socket — they stub `docker` and `curl` and need neither the
-  registry nor the client. Still containerised, so BATS remains something the
-  runner image provides. `tt e2e-test` is now 16 workflow tests rather than 44.
-- The e2e suite now covers publishing to an **organisation** namespace: a team
-  with only `Packages: Write` (no owner rights, no repositories) can publish,
-  and a token missing `read:organization` is refused with nothing left behind.
-  Previously every spec published under the test *user*, where the ACL check
-  short-circuits on `namespace == user` and the whole Gitea membership path —
-  including the scope it needs — went unexercised.
-- Documented how to add publishers to a registry: an organisation team with
-  only `Packages: Write` (no repositories, not an owner) is enough to publish,
-  and each publisher needs a token scoped `organization: Read`, `package: Read
-  and Write`, `user: Read`. Calls out that a missing `read:organization` scope
-  surfaces as `'<user>' cannot publish to namespace '<ns>'` — which reads as a
-  team-permissions problem and is not one — with the command to tell them
-  apart.
+- Documented how to add publishers to a registry. This release is that
+  documentation reaching PyPI, where it is visible — there is no code change.
+  An organisation team holding only `Packages: Write` — no repositories, not an
+  owner — is enough to publish, and each publisher needs a token scoped
+  `organization: Read`, `package: Read and Write`, `user: Read`. A missing
+  `read:organization` scope surfaces as `'<user>' cannot publish to namespace
+  '<ns>'`, which reads as a team-permissions problem and is not one; the README
+  gives the one command that tells the two apart.
 
 ### client
 
