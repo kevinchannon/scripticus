@@ -14,9 +14,16 @@ runners:
   # The e2e suite runs in a containerised runner over the host Docker daemon
   # (docker-out-of-docker): the socket is mounted in, tests/e2e.sh `compose up`s
   # the registry bundle as sibling containers, and BATS drives the client. The
-  # repo (including dist/ from the `build` task) is auto-mounted; run_as_root so
-  # the process can reach the socket and pip-install the client. See
+  # repo (including dist/ from the `build` task) is auto-mounted. See
   # tests/e2e-tests.dockerfile and doc/DECISIONS.md D55.
+  #
+  # run_as_root here, and only here: the mounted socket is mode 0660 owned by
+  # root, with a group that differs by platform (root on Docker Desktop,
+  # `docker` with a host-specific GID on Linux CI), so there is no portable
+  # `--group-add`. That is the right call rather than a workaround — handing a
+  # container the Docker socket is already equivalent to host root, so the
+  # container's own uid buys nothing. The `scripts` runner below, which needs
+  # no socket, does not get root.
   e2e:
     type: containerised
     engine: docker
@@ -32,15 +39,16 @@ runners:
   # specs were written against. What differs is what is *not* here — no mounted
   # socket, so nothing under this runner can reach the host's Docker.
   #
-  # run_as_root because `get-scripticus-svr` defaults the admin account to
-  # `id -un`, which fails outright when the container inherits a host UID with
-  # no /etc/passwd entry. That is an artefact of the bind mount, not something a
-  # real host does, so the runner sidesteps it rather than the script.
+  # Runs as the host user. `get-scripticus-svr` defaults its admin account to
+  # `id -un`, which needs the mapped UID to have a passwd entry — the Dockerfile
+  # creates one from these build args (tasktree #215, fixed in 1.4.0). Nothing
+  # here needs root, so nothing here gets it.
   scripts:
     type: containerised
     engine: docker
     dockerfile: tests/e2e-tests.dockerfile
-    run_as_root: true
+    args:
+      build: ["--build-arg", "UID={{ tt.uid }}", "--build-arg", "GID={{ tt.gid }}"]
 
 tasks:
   update-uv-deps:

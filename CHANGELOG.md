@@ -29,6 +29,12 @@ Releases before this file exists are recorded only in the git tags and in
   install-time PATH bootstrap and the documented first-run experience are
   covered end to end for the first time. Edge and error cases that pytest
   already covered moved out.
+- The shell-script test runner no longer needs root. Its image now carries a
+  passwd entry for the host UID Tasktree maps in, built from the
+  `{{ tt.uid }}`/`{{ tt.gid }}` variables added in Tasktree 1.4.0, so `id -un`
+  and `$HOME` resolve inside the container. The e2e runner keeps root because
+  it mounts the Docker socket, whose group differs by platform. Requires
+  Tasktree >= 1.4.0 (CI pin bumped).
 - The shell-script specs (`get-scripticus-svr`) moved out of the e2e suite into
   `tests/scripts/`, with their own `tt script-test` task and a runner that
   mounts no Docker socket — they stub `docker` and `curl` and need neither the

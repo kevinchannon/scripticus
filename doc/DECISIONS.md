@@ -1738,9 +1738,14 @@ the e2e run because that is where BATS happened to live.
   by Tasktree's still-maturing containerised runner; a run costs image builds +
   a full stack standup — minutes, not the pytest seconds, so it is a
   CI/pre-merge gate, not an inner-loop test.
-- Bad: DooD couples the run to the host Docker daemon and a socket mount
-  (`run_as_root`), and the e2e bundle appears as sibling containers on the
-  developer's real daemon (cleaned up on exit) rather than being nested.
+- Bad: DooD couples the run to the host Docker daemon and a socket mount, and
+  the e2e bundle appears as sibling containers on the developer's real daemon
+  (cleaned up on exit) rather than being nested. The socket is why that runner
+  alone is `run_as_root` — its group differs by platform, so there is no
+  portable `--group-add`, and a container holding the socket is host-root
+  equivalent anyway. The shell-script runner needs no socket and runs as the
+  host user, its image carrying a passwd entry for the mapped UID so `id -un`
+  and `$HOME` resolve (Tasktree >= 1.4.0's `{{ tt.uid }}`/`{{ tt.gid }}`).
 - Bad: the dev-tree wheels are `0.0.0.dev0`, so their internal same-minor pins
   can't be satisfied normally — `e2e.sh` installs the workspace wheels
   `--no-deps` and their third-party deps separately, a list that must track the

@@ -109,8 +109,16 @@ them by name and reaches them without a stack.
 
 Separate from the e2e suite, and separately runnable: these need no registry, no
 client, and no Docker socket, so they run under their own `scripts` runner with
-nothing mounted. Still containerised — BATS is something the runner image
-provides, not something every contributor has to install.
+nothing mounted and **as the host user, not root**. Still containerised — BATS
+is something the runner image provides, not something every contributor has to
+install.
+
+Running unprivileged needs the image to know who the host user is: Tasktree maps
+them in numerically (`--user <uid>:<gid>`), which is enough for file ownership
+but leaves the UID nameless, so `id -un` — which `get-scripticus-svr` calls —
+fails. `tests/e2e-tests.dockerfile` therefore creates a matching passwd entry
+from `{{ tt.uid }}`/`{{ tt.gid }}` build args, guarded so a base image already
+shipping that UID is left alone. Needs Tasktree >= 1.4.0.
 
 - [`scripts/bootstrap.bats`](scripts/bootstrap.bats) — it exercises
   [`get-scripticus-svr`](../get-scripticus-svr) (D61). It **stubs `docker` and

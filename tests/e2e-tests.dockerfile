@@ -22,6 +22,23 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends bats curl ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
+# Give the image a passwd entry for the host user Tasktree maps in with
+# `--user <uid>:<gid>`. Numeric mapping alone gets file ownership right but
+# leaves the UID nameless, so `id -un`, `whoami`, and `$HOME` fail — and
+# `get-scripticus-svr` defaults its admin account to `id -un`. Guarded, so a
+# base image that already ships this UID is left alone (tasktree #215).
+#
+# The UID/GID come from `{{ tt.uid }}`/`{{ tt.gid }}` build args in
+# tasktree.yaml, so the image matches whoever is running it — 501 on a Mac,
+# 1001 on a GitHub runner. Requires Tasktree >= 1.4.0.
+ARG UID=1000
+ARG GID=1000
+RUN set -eu; \
+    if ! getent passwd "$UID" >/dev/null; then \
+        getent group "$GID" >/dev/null || groupadd -g "$GID" runner; \
+        useradd -u "$UID" -g "$GID" -m -s /bin/bash runner; \
+    fi
+
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-compose \
      /usr/local/lib/docker/cli-plugins/docker-compose
